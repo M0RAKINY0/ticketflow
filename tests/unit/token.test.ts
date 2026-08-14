@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import jwt from 'jsonwebtoken';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { env } from '../../src/config/env.js';
 import { prisma } from '../../src/infrastructure/prisma.js';
@@ -71,10 +71,13 @@ describe('token utilities', () => {
       },
     });
 
+    const issuedAt = Date.UTC(2030, 0, 1, 0, 0, 0);
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(issuedAt);
     const first = await issueRefreshToken(user.id);
     const storedFirst = await prisma.refreshToken.findUniqueOrThrow({
       where: { tokenHash: createHash('sha256').update(first.rawToken).digest('hex') },
     });
+    dateNow.mockRestore();
     const second = await rotateRefreshToken(first.rawToken);
     const rotatedFirst = await prisma.refreshToken.findUniqueOrThrow({
       where: { tokenHash: createHash('sha256').update(first.rawToken).digest('hex') },
@@ -82,7 +85,7 @@ describe('token utilities', () => {
 
     expect(second.rawToken).not.toBe(first.rawToken);
     expect(storedFirst.tokenHash).not.toBe(first.rawToken);
-    expect(storedFirst.expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now() + (30 * 24 * 60 * 60 * 1_000) - 1_000);
+    expect(storedFirst.expiresAt).toEqual(new Date(issuedAt + (30 * 24 * 60 * 60 * 1_000)));
     expect(rotatedFirst.revokedAt).not.toBeNull();
     await expect(rotateRefreshToken(first.rawToken)).rejects.toMatchObject({ statusCode: 401 });
   });
