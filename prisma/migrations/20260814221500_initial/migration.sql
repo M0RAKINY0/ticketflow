@@ -1,12 +1,10 @@
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
 CREATE TYPE "Role" AS ENUM ('USER', 'ORGANIZER', 'ADMIN');
 CREATE TYPE "EventStatus" AS ENUM ('DRAFT', 'PUBLISHED', 'CANCELLED');
 CREATE TYPE "ReservationStatus" AS ENUM ('CONFIRMED', 'CANCELLED');
 CREATE TYPE "TicketStatus" AS ENUM ('PENDING', 'READY', 'USED', 'VOID');
 
 CREATE TABLE "User" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "email" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
@@ -18,7 +16,7 @@ CREATE TABLE "User" (
 );
 
 CREATE TABLE "Event" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "startsAt" TIMESTAMPTZ(3) NOT NULL,
@@ -32,7 +30,7 @@ CREATE TABLE "Event" (
 );
 
 CREATE TABLE "TicketType" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "eventId" UUID NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
@@ -48,7 +46,7 @@ CREATE TABLE "TicketType" (
 );
 
 CREATE TABLE "Reservation" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "userId" UUID NOT NULL,
     "eventId" UUID NOT NULL,
     "ticketTypeId" UUID NOT NULL,
@@ -60,7 +58,7 @@ CREATE TABLE "Reservation" (
 );
 
 CREATE TABLE "Ticket" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "reservationId" UUID NOT NULL,
     "publicId" TEXT NOT NULL,
     "status" "TicketStatus" NOT NULL DEFAULT 'PENDING',
@@ -71,7 +69,7 @@ CREATE TABLE "Ticket" (
 );
 
 CREATE TABLE "CheckIn" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "ticketId" UUID NOT NULL,
     "eventId" UUID NOT NULL,
     "checkedInById" UUID NOT NULL,
@@ -80,7 +78,7 @@ CREATE TABLE "CheckIn" (
 );
 
 CREATE TABLE "RefreshToken" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "userId" UUID NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "expiresAt" TIMESTAMPTZ(3) NOT NULL,
