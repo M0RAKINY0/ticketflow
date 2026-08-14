@@ -9,6 +9,7 @@ import {
   issueRefreshToken,
   rotateRefreshToken,
   signAccessToken,
+  verifyAccessToken,
 } from '../../src/utilities/token.js';
 
 const TOKEN_TEST_EMAIL_PREFIX = 'token-test-';
@@ -28,6 +29,36 @@ describe('token utilities', () => {
     expect(payload.role).toBe('USER');
     expect(payload.exp).toBeDefined();
     expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(15 * 60);
+    expect(jwt.decode(accessToken, { complete: true })?.header.alg).toBe('HS256');
+  });
+
+  it('rejects a correctly signed access token with no expiry', () => {
+    const accessToken = jwt.sign({ role: 'USER' }, env.ACCESS_TOKEN_SECRET, {
+      subject: '1e4486b5-9d96-4e34-a306-12b01197c6a5',
+      algorithm: 'HS256',
+    });
+
+    expect(() => verifyAccessToken(accessToken)).toThrow(/invalid access token/i);
+  });
+
+  it('rejects a correctly signed access token that uses HS512', () => {
+    const accessToken = jwt.sign({ role: 'USER' }, env.ACCESS_TOKEN_SECRET, {
+      subject: '1e4486b5-9d96-4e34-a306-12b01197c6a5',
+      algorithm: 'HS512',
+      expiresIn: '15m',
+    });
+
+    expect(() => verifyAccessToken(accessToken)).toThrow(/invalid access token/i);
+  });
+
+  it('rejects a correctly signed access token with the wrong lifetime', () => {
+    const accessToken = jwt.sign({ role: 'USER' }, env.ACCESS_TOKEN_SECRET, {
+      subject: '1e4486b5-9d96-4e34-a306-12b01197c6a5',
+      algorithm: 'HS256',
+      expiresIn: '10m',
+    });
+
+    expect(() => verifyAccessToken(accessToken)).toThrow(/invalid access token/i);
   });
 
   it('rotates a refresh token once and rejects its reuse', async () => {
@@ -41,14 +72,42 @@ describe('token utilities', () => {
     });
 
     const first = await issueRefreshToken(user.id);
-    const second = await rotateRefreshToken(first.rawToken);
     const storedFirst = await prisma.refreshToken.findUniqueOrThrow({
+      where: { tokenHash: createHash('sha256').update(first.rawToken).digest('hex') },
+    });
+    const second = await rotateRefreshToken(first.rawToken);
+    const rotatedFirst = await prisma.refreshToken.findUniqueOrThrow({
       where: { tokenHash: createHash('sha256').update(first.rawToken).digest('hex') },
     });
 
     expect(second.rawToken).not.toBe(first.rawToken);
-    expect(storedFirst.revokedAt).not.toBeNull();
+    expect(storedFirst.tokenHash).not.toBe(first.rawToken);
+    expect(storedFirst.expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now() + (30 * 24 * 60 * 60 * 1_000) - 1_000);
+    expect(rotatedFirst.revokedAt).not.toBeNull();
     await expect(rotateRefreshToken(first.rawToken)).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it('allows exactly one simultaneous rotation and persists only its replacement', async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: `${TOKEN_TEST_EMAIL_PREFIX}simultaneous@example.com`,
+        name: 'Simultaneous Rotation',
+        phoneNumber: '+2348000000005',
+        passwordHash: 'not-used-by-this-test',
+      },
+    });
+    const first = await issueRefreshToken(user.id);
+
+    const results = await Promise.allSettled([
+      rotateRefreshToken(first.rawToken),
+      rotateRefreshToken(first.rawToken),
+    ]);
+    const storedTokens = await prisma.refreshToken.findMany({ where: { userId: user.id } });
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(storedTokens).toHaveLength(2);
+    expect(storedTokens.filter((token) => token.revokedAt === null)).toHaveLength(1);
   });
 
   it('rejects expired and revoked refresh tokens', async () => {

@@ -49,6 +49,16 @@ describe('authentication and role authorization', () => {
     expect(response.status).toBe(401);
   });
 
+  it('does not expose a password hash from a successful login', async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}login@example.com`;
+    await registerUser(email);
+
+    const response = await request(createApp()).post('/api/v1/auth/login').send({ email, password });
+
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).not.toContain('passwordHash');
+  });
+
   it('rotates refresh tokens and rejects a reused token', async () => {
     const registration = await registerUser(`${AUTH_TEST_EMAIL_PREFIX}refresh@example.com`);
     const firstRefreshToken = registration.body.data.refreshToken as string;
@@ -62,6 +72,7 @@ describe('authentication and role authorization', () => {
 
     expect(refreshed.status).toBe(200);
     expect(refreshed.body.data.refreshToken).not.toBe(firstRefreshToken);
+    expect(JSON.stringify(refreshed.body)).not.toContain('passwordHash');
     expect(reused.status).toBe(401);
   });
 
@@ -82,6 +93,7 @@ describe('authentication and role authorization', () => {
     expect(unauthenticated.status).toBe(401);
     expect(profile.status).toBe(200);
     expect(profile.body.data.user.email).toBe(`${AUTH_TEST_EMAIL_PREFIX}profile@example.com`);
+    expect(JSON.stringify(profile.body)).not.toContain('passwordHash');
     expect(logout.status).toBe(204);
     expect(refreshed.status).toBe(401);
   });
@@ -126,6 +138,41 @@ describe('authentication and role authorization', () => {
     expect(forbidden.status).toBe(403);
     expect(changed.status).toBe(200);
     expect(changed.body.data.user.role).toBe('ORGANIZER');
+    expect(JSON.stringify(changed.body)).not.toContain('passwordHash');
     expect(adminRole.status).toBe(400);
+  });
+
+  it('maps malformed JSON to a stable 400 error without parser internals', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/auth/login')
+      .set('Content-Type', 'application/json')
+      .send('{"email":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: { code: 'INVALID_JSON', message: 'Invalid JSON body' },
+    });
+  });
+
+  it('maps oversized JSON to a stable 413 error without parser internals', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/auth/login')
+      .send({ email: 'x'.repeat(110_000) });
+
+    expect(response.status).toBe(413);
+    expect(response.body).toEqual({
+      error: { code: 'REQUEST_TOO_LARGE', message: 'Request body is too large' },
+    });
+  });
+
+  it('returns a conflict for one of two simultaneous registrations with the same email', async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}duplicate@example.com`;
+
+    const responses = await Promise.all([registerUser(email), registerUser(email)]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect(responses.find((response) => response.status === 409)?.body).toEqual({
+      error: { code: 'EMAIL_ALREADY_REGISTERED', message: 'Email is already registered' },
+    });
   });
 });

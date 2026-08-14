@@ -35,6 +35,7 @@ function createRawRefreshToken(): string {
 
 export function signAccessToken(user: AccessTokenUser): string {
   return jwt.sign({ role: user.role }, env.ACCESS_TOKEN_SECRET, {
+    algorithm: 'HS256',
     subject: user.id,
     expiresIn: ACCESS_TOKEN_LIFETIME,
   });
@@ -42,9 +43,17 @@ export function signAccessToken(user: AccessTokenUser): string {
 
 export function verifyAccessToken(accessToken: string): AccessTokenClaims {
   try {
-    const payload = jwt.verify(accessToken, env.ACCESS_TOKEN_SECRET) as JwtPayload;
+    const payload = jwt.verify(accessToken, env.ACCESS_TOKEN_SECRET, {
+      algorithms: ['HS256'],
+    }) as JwtPayload;
 
-    if (typeof payload.sub !== 'string' || !isRole(payload.role)) {
+    if (
+      typeof payload.sub !== 'string'
+      || !isRole(payload.role)
+      || !isFiniteNumeric(payload.iat)
+      || !isFiniteNumeric(payload.exp)
+      || payload.exp - payload.iat !== 15 * 60
+    ) {
       throw new AppError(401, 'INVALID_ACCESS_TOKEN', 'Invalid access token');
     }
 
@@ -144,4 +153,8 @@ export async function revokeRefreshToken(rawToken: string): Promise<void> {
 
 function isRole(value: unknown): value is Role {
   return value === 'USER' || value === 'ORGANIZER' || value === 'ADMIN';
+}
+
+function isFiniteNumeric(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }

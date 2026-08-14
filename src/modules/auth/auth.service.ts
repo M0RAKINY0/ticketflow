@@ -51,13 +51,23 @@ export async function register(input: RegistrationInput): Promise<Authentication
     throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'Email is already registered');
   }
 
-  const user = await authRepository.createUser({
-    email: input.email,
-    name: input.name,
-    phoneNumber: input.phoneNumber,
-    passwordHash: await hashPassword(input.password),
-    role: 'USER',
-  });
+  let user: User;
+
+  try {
+    user = await authRepository.createUser({
+      email: input.email,
+      name: input.name,
+      phoneNumber: input.phoneNumber,
+      passwordHash: await hashPassword(input.password),
+      role: 'USER',
+    });
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'Email is already registered');
+    }
+
+    throw error;
+  }
 
   return createAuthenticationResult(user);
 }
@@ -89,4 +99,13 @@ export async function refresh(rawToken: string): Promise<AuthenticationResult> {
 
 export function logout(rawToken: string): Promise<void> {
   return revokeRefreshToken(rawToken);
+}
+
+function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'P2002'
+  );
 }
