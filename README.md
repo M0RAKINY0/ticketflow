@@ -23,6 +23,12 @@ Ventra follows a layered architecture consisting of controllers, services, repos
 * Dockerized development and deployment environment
 * Scalable architecture with Nginx load balancing support
 
+## Authentication API
+
+The current API exposes authentication under `/api/v1/auth`. Public registration always creates a `USER` account, even if the request includes another role. `POST /register`, `POST /login`, and `POST /refresh` return a short-lived access JWT and an opaque refresh token. Refresh tokens are generated from 48 random bytes, stored only as SHA-256 hashes, expire after 30 days, and are invalidated when rotated or logged out.
+
+Use the access token as `Authorization: Bearer <token>` for `GET /api/v1/me`. Only `ADMIN` accounts may call `PATCH /api/v1/users/:userId/role`, and that endpoint may assign only `USER` or `ORGANIZER`; it cannot create another administrator through the API.
+
 ## Tech Stack
 
 * Node.js
