@@ -1,8 +1,8 @@
-# Ventra Ticketing API
+# Ventra Ticketing
 
-Ventra is a lean event-ticketing backend built with Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Organizers create capacity-limited events, attendees reserve tickets with idempotency protection, and event staff perform one-time QR check-ins.
+Ventra is an event-ticketing application built with React, Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Organizers create capacity-limited events, attendees discover events and reserve tickets, and event staff perform one-time QR check-ins.
 
-The delivered application is intentionally a single HTTP service. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints; there is no Redis, job worker, payment system, frontend, Docker, or Nginx layer.
+The product uses a Vite React application in `web/` and a single Express API. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints; there is no Redis, job worker, payment system, Docker, or Nginx layer.
 
 ## Capabilities
 
@@ -10,6 +10,8 @@ The delivered application is intentionally a single HTTP service. Reservation in
 - `USER`, `ORGANIZER`, and `ADMIN` role authorization.
 - Organizer-owned draft event and ticket-type management.
 - Paginated public discovery of upcoming published events by search, category, date, and country.
+- Responsive discovery-first web shell with desktop and mobile navigation.
+- Same-origin browser sessions with access tokens kept only in memory.
 - Atomic capacity enforcement and per-user idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
 - Attendee reservation, ticket, and QR retrieval.
@@ -54,7 +56,23 @@ npm test
 npm run typecheck
 npm run build
 npm run format:check
+npm run test:web
+npm run typecheck:web
+npm run build:web
 ```
+
+## Web application
+
+The React workspace lives in `web/`. It uses React Router for attendee, organizer, and admin route boundaries; TanStack Query for server state; Tailwind-backed design tokens; Radix primitives; and a self-hosted Manrope variable font. The approved visual direction is a near-white discovery canvas with graphite typography and electric-indigo actions.
+
+Start the API on port `4000`, then run the Vite development server in a second terminal:
+
+```bash
+npm run dev
+npm run dev:web
+```
+
+Vite proxies `/api` and `/health` to `http://localhost:4000`, so cookies remain same-origin in development. Browser refresh credentials stay in an `HttpOnly` cookie, while the short-lived access token exists only in module memory and is renewed through a single-flight refresh request.
 
 ## Authentication
 

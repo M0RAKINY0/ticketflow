@@ -3,16 +3,24 @@
   "version": "1.0.0",
   "description": "",
   "type": "module",
+  "workspaces": [
+    "web"
+  ],
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:web": "npm run dev --workspace web",
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.json",
+    "build:web": "npm run build --workspace web",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:web": "npm run typecheck --workspace web",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:web": "npm run test --workspace web",
+    "test:e2e": "playwright test",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "prisma:generate": "prisma generate",
@@ -44,6 +52,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
