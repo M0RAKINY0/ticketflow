@@ -1,44 +1,119 @@
-# ticketflow
+# Ventra Ticketing API
 
-ticketflow is a production-inspired event ticketing backend built with Node.js, Express, TypeScript, PostgreSQL, Redis, and Docker. It enables organizers to create and manage events while allowing attendees to reserve tickets, receive QR-coded digital passes, and check in seamlessly at event venues.
+Ventra is a lean event-ticketing backend built with Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Organizers create capacity-limited events, attendees reserve tickets with idempotency protection, and event staff perform one-time QR check-ins.
 
-The project is designed to go beyond basic CRUD operations and explore backend engineering concepts commonly used in real-world systems. It implements authentication and role-based access control, ticket inventory management, QR code generation, Redis caching, rate limiting, background job processing, and transactional database operations to ensure reliability and consistency.
+The delivered application is intentionally a single HTTP service. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints; there is no Redis, job worker, payment system, frontend, Docker, or Nginx layer.
 
-Organizers can create events, define ticket categories, monitor ticket availability, and validate attendees during check-in. Each ticket is assigned a unique identifier and QR code, enabling fast and secure verification at the point of entry. To prevent overselling, ticket reservations are processed using database transactions, ensuring inventory remains accurate even under concurrent requests.
+## Capabilities
 
-Ventra follows a layered architecture consisting of controllers, services, repositories, and middleware, promoting maintainability and scalability. Redis is used for caching frequently accessed data, managing rate limits, and powering asynchronous jobs through BullMQ. The application is fully containerized with Docker and can be deployed behind Nginx for load balancing and horizontal scaling.
+- Public registration, login, refresh-token rotation, logout, and access JWTs.
+- `USER`, `ORGANIZER`, and `ADMIN` role authorization.
+- Organizer-owned draft event and ticket-type management.
+- Public discovery of published events and ticket types.
+- Atomic capacity enforcement and per-user idempotent reservations.
+- Synchronous QR generation stored as a PNG data URL on each ticket.
+- Attendee reservation, ticket, and QR retrieval.
+- Organizer/admin ticket validation with exactly-once check-in.
+- Stable `{ "data": ... }` success and `{ "error": { "code", "message" } }` error envelopes.
 
-## Key Features
+## Requirements
 
-* JWT-based authentication and authorization
-* Role-based access control (User, Organizer, Admin)
-* Event and ticket type management
-* Ticket reservation with transactional inventory updates
-* Unique ticket generation and QR code creation
-* Event check-in and ticket validation
-* Redis-powered caching
-* API rate limiting
-* Background job processing with BullMQ
-* Request logging and centralized error handling
-* Dockerized development and deployment environment
-* Scalable architecture with Nginx load balancing support
+- Node.js 24 or newer.
+- PostgreSQL.
 
-## Authentication API
+Install dependencies:
 
-The current API exposes authentication under `/api/v1/auth`. Public registration always creates a `USER` account, even if the request includes another role. `POST /register`, `POST /login`, and `POST /refresh` return a short-lived access JWT and an opaque refresh token. Refresh tokens are generated from 48 random bytes, stored only as SHA-256 hashes, expire after 30 days, and are invalidated when rotated or logged out.
+```bash
+npm install
+```
 
-Use the access token as `Authorization: Bearer <token>` for `GET /api/v1/me`. Only `ADMIN` accounts may call `PATCH /api/v1/users/:userId/role`, and that endpoint may assign only `USER` or `ORGANIZER`; it cannot create another administrator through the API.
+Configure the service with environment variables:
 
-## Tech Stack
+```dotenv
+NODE_ENV=development
+PORT=4000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ventra
+ACCESS_TOKEN_SECRET=replace-with-at-least-32-characters
+REFRESH_TOKEN_SECRET=replace-with-at-least-32-characters
+```
 
-* Node.js
-* Express.js
-* TypeScript
-* PostgreSQL
-* Redis
-* BullMQ
-* Docker
-* Nginx
-* JWT Authentication
+For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test mode rejects a test URL that is missing or equal to `DATABASE_URL`.
 
-Ventra serves as a practical backend engineering project focused on building scalable, maintainable, and production-ready REST APIs while exploring modern backend infrastructure and system design patterns.
+Generate the client, apply migrations, and start development:
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate
+npm run dev
+```
+
+Useful verification commands:
+
+```bash
+npm test
+npm run typecheck
+npm run build
+npm run format:check
+```
+
+## Authentication
+
+Authentication endpoints are under `/api/v1/auth`:
+
+- `POST /register`
+- `POST /login`
+- `POST /refresh`
+- `POST /logout`
+
+Public registration always creates a `USER`, regardless of extra fields in the request. Access tokens are sent as `Authorization: Bearer <token>`. Refresh tokens are opaque, stored only as SHA-256 hashes, rotated on refresh, and revoked on logout. Only an `ADMIN` may call `PATCH /api/v1/users/:userId/role`, and the endpoint assigns only `USER` or `ORGANIZER`.
+
+## Ticketing API
+
+All routes below use the `/api/v1` prefix.
+
+| Method   | Path                                          | Access                | Behavior                                                                        |
+| -------- | --------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| `GET`    | `/events`                                     | Public; optional auth | Public users see published events; organizers see their events; admins see all. |
+| `GET`    | `/events/:eventId`                            | Public; optional auth | Published events are public; owners and admins can inspect non-public events.   |
+| `POST`   | `/events`                                     | Organizer             | Creates a draft event.                                                          |
+| `PATCH`  | `/events/:eventId`                            | Owning organizer      | Updates a draft event.                                                          |
+| `POST`   | `/events/:eventId/publish`                    | Owning organizer      | Publishes a draft with at least one ticket type.                                |
+| `POST`   | `/events/:eventId/cancel`                     | Owning organizer      | Cancels a draft or published event.                                             |
+| `GET`    | `/events/:eventId/ticket-types`               | Public; optional auth | Lists ticket types when the event is visible.                                   |
+| `POST`   | `/events/:eventId/ticket-types`               | Owning organizer      | Adds a ticket type to a draft.                                                  |
+| `PATCH`  | `/events/:eventId/ticket-types/:ticketTypeId` | Owning organizer      | Updates a ticket type on a draft.                                               |
+| `DELETE` | `/events/:eventId/ticket-types/:ticketTypeId` | Owning organizer      | Deletes a ticket type from a draft.                                             |
+| `POST`   | `/events/:eventId/reservations`               | User                  | Reserves one ticket for a published event.                                      |
+| `GET`    | `/me/reservations`                            | Authenticated         | Lists the caller's reservations.                                                |
+| `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                     |
+| `GET`    | `/me/tickets/:ticketId`                       | Ticket owner          | Returns one ticket.                                                             |
+| `GET`    | `/me/tickets/:ticketId/qr`                    | Ticket owner          | Returns the stored QR data URL and signed payload.                              |
+| `POST`   | `/events/:eventId/check-ins`                  | Owner or admin        | Validates a signed QR payload and consumes the ticket once.                     |
+| `GET`    | `/events/:eventId/check-ins`                  | Owner or admin        | Lists event check-ins.                                                          |
+
+Reservation requests require an `Idempotency-Key` header and a JSON body:
+
+```json
+{ "ticketTypeId": "uuid" }
+```
+
+The first successful request returns `201`; replaying the same user, key, event, and ticket type returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`.
+
+Check-in requests accept the payload read from the ticket's QR code:
+
+```json
+{ "qrPayload": "opaque-ticket-id.hmac-signature" }
+```
+
+The QR contains no attendee or event data. Its opaque ticket identifier is signed with HMAC, and a conditional ticket-state transition ensures concurrent scans cannot both succeed.
+
+## Data integrity
+
+PostgreSQL is the concurrency authority:
+
+- `TicketType.reservedCount` is incremented only when it remains below `capacity`.
+- `(userId, idempotencyKey)` is unique for reservations.
+- Each reservation owns at most one ticket, and ticket public IDs are unique.
+- Ticket status changes from `READY` to `USED` through a conditional update.
+- `CheckIn.ticketId` is unique as a second exactly-once safeguard.
+- Generated PNG QR data URLs are stored durably in `Ticket.qrCodeDataUrl`.

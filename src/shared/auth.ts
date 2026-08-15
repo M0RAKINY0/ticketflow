@@ -34,6 +34,32 @@ export function authenticate(request: Request, _response: Response, next: NextFu
   }
 }
 
+export function authenticateOptional(
+  request: Request,
+  _response: Response,
+  next: NextFunction,
+): void {
+  const authorization = request.header('authorization');
+
+  if (!authorization) {
+    next();
+    return;
+  }
+
+  if (!authorization.startsWith('Bearer ')) {
+    next(new AppError(401, 'UNAUTHENTICATED', 'Authentication is required'));
+    return;
+  }
+
+  try {
+    const claims = verifyAccessToken(authorization.slice('Bearer '.length));
+    request.principal = { id: claims.sub, role: claims.role };
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function requireRole(...roles: Role[]): RequestHandler {
   return (request, _response, next) => {
     if (!request.principal) {

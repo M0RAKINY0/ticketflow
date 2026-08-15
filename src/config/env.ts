@@ -9,7 +9,6 @@ const environmentSchema = z
     PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
     DATABASE_URL: z.url(),
     TEST_DATABASE_URL: z.url().optional(),
-    REDIS_URL: z.url(),
     ACCESS_TOKEN_SECRET: z.string().min(32),
     REFRESH_TOKEN_SECRET: z.string().min(32),
   });

@@ -12,7 +12,6 @@ function validEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv 
     PORT: '4000',
     DATABASE_URL: POSTGRES_URL,
     TEST_DATABASE_URL: TEST_POSTGRES_URL,
-    REDIS_URL: 'redis://localhost:6379',
     ACCESS_TOKEN_SECRET: SECRET_A,
     REFRESH_TOKEN_SECRET: SECRET_B,
     ...overrides,
@@ -62,7 +61,6 @@ describe('parseEnv', () => {
     ).toMatchObject({
       NODE_ENV: 'production',
       DATABASE_URL: POSTGRES_URL,
-      REDIS_URL: 'redis://localhost:6379',
     });
   });
 });

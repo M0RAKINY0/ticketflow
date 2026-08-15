@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler, type Express } from 'express';
 
 import { authRouter } from './modules/auth/auth.routes.js';
+import { ticketingRouter } from './modules/ticketing/ticketing.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
 import { AppError } from './shared/errors.js';
 import { success } from './shared/response.js';
@@ -66,6 +67,7 @@ export function createApp(): Express {
   });
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1', usersRouter);
+  app.use('/api/v1', ticketingRouter);
   app.use(errorHandler);
 
   return app;
