@@ -65,7 +65,9 @@ Authentication endpoints are under `/api/v1/auth`:
 - `POST /refresh`
 - `POST /logout`
 
-Public registration always creates a `USER`, regardless of extra fields in the request. Access tokens are sent as `Authorization: Bearer <token>`. Refresh tokens are opaque, stored only as SHA-256 hashes, rotated on refresh, and revoked on logout. Only an `ADMIN` may call `PATCH /api/v1/users/:userId/role`, and the endpoint assigns only `USER` or `ORGANIZER`.
+Public registration always creates a `USER`, regardless of extra fields in the request. Registration and login return the access token and public user in JSON; access tokens are sent as `Authorization: Bearer <token>`. The refresh credential is an opaque token issued only in the `ventra_refresh` cookie with `HttpOnly`, `SameSite=Lax`, a 30-day lifetime, an auth-scoped path, and `Secure` in production. Refresh rotates that cookie without a JSON body, and logout revokes and clears it.
+
+Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ORGANIZER`; the public API never assigns `ADMIN`.
 
 ## Ticketing API
 

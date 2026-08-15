@@ -20,7 +20,10 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
   return toPublicUser(user);
 }
 
-export async function assignRole(userId: string, role: AssignableRole): Promise<PublicUser> {
+export async function assignRole(
+  userId: string,
+  role: AssignableRole,
+): Promise<PublicUser> {
   const user = await usersRepository.findById(userId);
 
   if (!user) {
@@ -28,4 +31,15 @@ export async function assignRole(userId: string, role: AssignableRole): Promise<
   }
 
   return toPublicUser(await usersRepository.updateRole(userId, role));
+}
+
+export async function listUsers(input: {
+  query?: string | undefined;
+  role?: 'USER' | 'ORGANIZER' | 'ADMIN' | undefined;
+  page: number;
+  pageSize: number;
+}) {
+  const { items, total } = await usersRepository.list(input);
+
+  return { items, page: input.page, pageSize: input.pageSize, total };
 }

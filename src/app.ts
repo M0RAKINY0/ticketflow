@@ -1,4 +1,5 @@
 import express, { type ErrorRequestHandler, type Express } from 'express';
+import cookieParser from 'cookie-parser';
 
 import { authRouter } from './modules/auth/auth.routes.js';
 import { ticketingRouter } from './modules/ticketing/ticketing.routes.js';
@@ -6,7 +7,12 @@ import { usersRouter } from './modules/users/users.routes.js';
 import { AppError } from './shared/errors.js';
 import { success } from './shared/response.js';
 
-const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+const errorHandler: ErrorRequestHandler = (
+  error: unknown,
+  _request,
+  response,
+  _next,
+) => {
   const parserError = getBodyParserError(error);
 
   if (parserError) {
@@ -33,10 +39,12 @@ const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _
   });
 };
 
-function getBodyParserError(error: unknown): {
-  statusCode: 400 | 413;
-  body: { code: string; message: string };
-} | undefined {
+function getBodyParserError(error: unknown):
+  | {
+      statusCode: 400 | 413;
+      body: { code: string; message: string };
+    }
+  | undefined {
   if (typeof error !== 'object' || error === null || !('status' in error)) {
     return undefined;
   }
@@ -61,6 +69,7 @@ function getBodyParserError(error: unknown): {
 export function createApp(): Express {
   const app = express();
 
+  app.use(cookieParser());
   app.use(express.json());
   app.get('/health', (_request, response) => {
     response.status(200).json(success({ status: 'ok' }));
