@@ -67,6 +67,8 @@ The React workspace lives in `web/`. It uses React Router for attendee, organize
 
 Public discovery owns its state in URL parameters: `q`, `category`, `from`, `to`, `country`, and `page`. Event cards and detail screens format dates in the event's IANA timezone and prices in its ISO currency. Login and registration preserve a safe internal return path. Each ticket reservation intent creates one browser UUID sent as `Idempotency-Key`; retrying the same event and ticket type reuses that key, while changing either creates a new intent.
 
+Offline ticket records use IndexedDB database `ventra`, store `tickets`, and the compound key `[userId, ticketId]`. Records are never returned across users, and logout purges the active user's cached signed QR material before the session is removed from the interface.
+
 Start the API on port `4000`, then run the Vite development server in a second terminal:
 
 ```bash

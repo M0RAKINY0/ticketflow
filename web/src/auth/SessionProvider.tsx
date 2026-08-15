@@ -4,6 +4,7 @@ import { type PropsWithChildren, useCallback, useContext, useEffect, useMemo, us
 import * as authApi from '../api/auth';
 import type { LoginInput, RegisterInput } from '../api/auth';
 import type { PublicUser } from '../api/types';
+import { deleteOfflineTicketsForUser } from '../lib/offline-tickets';
 import { SessionContext, type SessionContextValue } from './session-context';
 
 type SessionState =
@@ -41,13 +42,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const logout = useCallback(async () => {
+    const activeUserId = session.status === 'authenticated' ? session.user.id : null;
     try {
       await authApi.logout();
     } finally {
+      if (activeUserId) await deleteOfflineTicketsForUser(activeUserId);
       queryClient.clear();
       setSession({ status: 'anonymous', user: null });
     }
-  }, [queryClient]);
+  }, [queryClient, session]);
 
   const value = useMemo<SessionContextValue>(
     () => ({ ...session, login, register, logout }) as SessionContextValue,
