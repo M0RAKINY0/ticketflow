@@ -12,8 +12,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const inputId = id ?? props.name;
   const errorId = error && inputId ? `${inputId}-error` : undefined;
   return (
-    <label className={`field ${className}`.trim()} htmlFor={inputId}>
-      <span className="field__label">{label}</span>
+    <div className={`field ${className}`.trim()}>
+      <label className="field__label" htmlFor={inputId}>{label}</label>
       <input
         ref={ref}
         id={inputId}
@@ -23,6 +23,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         {...props}
       />
       {error ? <span id={errorId} className="field__error">{error}</span> : null}
-    </label>
+    </div>
   );
 });

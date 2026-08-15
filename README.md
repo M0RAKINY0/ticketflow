@@ -65,6 +65,8 @@ npm run build:web
 
 The React workspace lives in `web/`. It uses React Router for attendee, organizer, and admin route boundaries; TanStack Query for server state; Tailwind-backed design tokens; Radix primitives; and a self-hosted Manrope variable font. The approved visual direction is a near-white discovery canvas with graphite typography and electric-indigo actions.
 
+Public discovery owns its state in URL parameters: `q`, `category`, `from`, `to`, `country`, and `page`. Event cards and detail screens format dates in the event's IANA timezone and prices in its ISO currency. Login and registration preserve a safe internal return path. Each ticket reservation intent creates one browser UUID sent as `Idempotency-Key`; retrying the same event and ticket type reuses that key, while changing either creates a new intent.
+
 Start the API on port `4000`, then run the Vite development server in a second terminal:
 
 ```bash

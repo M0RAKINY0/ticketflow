@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -25,9 +26,10 @@ describe('Ventra router', () => {
 
 function renderRouter(entries: string[], session: SessionContextValue) {
   const router = createMemoryRouter(appRoutes, { initialEntries: entries });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <SessionContext.Provider value={session}>
-      <RouterProvider router={router} />
+      <QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>
     </SessionContext.Provider>,
   );
   return router;
