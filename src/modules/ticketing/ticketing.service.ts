@@ -1,4 +1,8 @@
-import type { EventStatus, Prisma, Role } from '../../generated/prisma/client.js';
+import type {
+  EventStatus,
+  Prisma,
+  Role,
+} from '../../generated/prisma/client.js';
 import { prisma } from '../../infrastructure/prisma.js';
 import { AppError } from '../../shared/errors.js';
 import {
@@ -10,6 +14,7 @@ import {
 import type {
   CreateEventInput,
   CreateTicketTypeInput,
+  DiscoveryQuery,
   UpdateEventInput,
   UpdateTicketTypeInput,
 } from './ticketing.schema.js';
@@ -37,19 +42,53 @@ const ticketInclude = {
   checkIn: true,
 } satisfies Prisma.TicketInclude;
 
-export async function listEvents(principal?: Principal) {
-  const where: Prisma.EventWhereInput =
+export async function listEvents(query: DiscoveryQuery, principal?: Principal) {
+  const visibility: Prisma.EventWhereInput =
     principal?.role === 'ADMIN'
       ? {}
       : principal?.role === 'ORGANIZER'
         ? { organizerId: principal.id }
-        : { status: 'PUBLISHED' };
+        : { status: 'PUBLISHED', startsAt: { gte: new Date() } };
 
-  return prisma.event.findMany({
-    where,
-    include: eventInclude,
-    orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
-  });
+  const filters: Prisma.EventWhereInput[] = [];
+  if (query.query) {
+    filters.push({
+      OR: [
+        { title: { contains: query.query, mode: 'insensitive' } },
+        { venue: { contains: query.query, mode: 'insensitive' } },
+        { city: { contains: query.query, mode: 'insensitive' } },
+        { organizer: { name: { contains: query.query, mode: 'insensitive' } } },
+      ],
+    });
+  }
+  if (query.category) filters.push({ category: query.category });
+  if (query.countryCode) filters.push({ countryCode: query.countryCode });
+  if (query.from || query.to) {
+    filters.push({
+      startsAt: {
+        ...(query.from ? { gte: new Date(query.from) } : {}),
+        ...(query.to ? { lte: new Date(query.to) } : {}),
+      },
+    });
+  }
+
+  const where: Prisma.EventWhereInput = {
+    AND: [visibility, ...filters],
+  };
+
+  const skip = (query.page - 1) * query.pageSize;
+  const [items, total] = await prisma.$transaction([
+    prisma.event.findMany({
+      where,
+      include: eventInclude,
+      orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
+      skip,
+      take: query.pageSize,
+    }),
+    prisma.event.count({ where }),
+  ]);
+
+  return { items, page: query.page, pageSize: query.pageSize, total };
 }
 
 export async function getEvent(eventId: string, principal?: Principal) {
@@ -66,20 +105,33 @@ export async function getEvent(eventId: string, principal?: Principal) {
 }
 
 export function createEvent(organizerId: string, input: CreateEventInput) {
+  const data: Prisma.EventUncheckedCreateInput = {
+    organizerId,
+    title: input.title,
+    description: input.description,
+    startsAt: new Date(input.startsAt),
+    endsAt: new Date(input.endsAt),
+    venue: input.venue,
+    category: input.category,
+    city: input.city,
+    countryCode: input.countryCode,
+    currency: input.currency,
+    timezone: input.timezone,
+  };
+  if (input.coverImageUrl !== undefined)
+    data.coverImageUrl = input.coverImageUrl;
+
   return prisma.event.create({
-    data: {
-      organizerId,
-      title: input.title,
-      description: input.description,
-      startsAt: new Date(input.startsAt),
-      endsAt: new Date(input.endsAt),
-      venue: input.venue,
-    },
+    data,
     include: eventInclude,
   });
 }
 
-export async function updateEvent(eventId: string, organizerId: string, input: UpdateEventInput) {
+export async function updateEvent(
+  eventId: string,
+  organizerId: string,
+  input: UpdateEventInput,
+) {
   const event = await requireOwnedEvent(eventId, organizerId);
 
   if (event.status !== 'DRAFT') {
@@ -90,7 +142,11 @@ export async function updateEvent(eventId: string, organizerId: string, input: U
   const endsAt = input.endsAt ? new Date(input.endsAt) : event.endsAt;
 
   if (endsAt <= startsAt) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'endsAt must be after startsAt');
+    throw new AppError(
+      400,
+      'VALIDATION_ERROR',
+      'endsAt must be after startsAt',
+    );
   }
 
   const data: Prisma.EventUpdateInput = {};
@@ -99,6 +155,13 @@ export async function updateEvent(eventId: string, organizerId: string, input: U
   if (input.startsAt !== undefined) data.startsAt = startsAt;
   if (input.endsAt !== undefined) data.endsAt = endsAt;
   if (input.venue !== undefined) data.venue = input.venue;
+  if (input.category !== undefined) data.category = input.category;
+  if (input.coverImageUrl !== undefined)
+    data.coverImageUrl = input.coverImageUrl;
+  if (input.city !== undefined) data.city = input.city;
+  if (input.countryCode !== undefined) data.countryCode = input.countryCode;
+  if (input.currency !== undefined) data.currency = input.currency;
+  if (input.timezone !== undefined) data.timezone = input.timezone;
 
   return prisma.event.update({
     where: { id: eventId },
@@ -138,7 +201,11 @@ export async function cancelEvent(eventId: string, organizerId: string) {
   const event = await requireOwnedEvent(eventId, organizerId);
 
   if (event.status === 'CANCELLED') {
-    throw new AppError(409, 'EVENT_ALREADY_CANCELLED', 'Event is already cancelled');
+    throw new AppError(
+      409,
+      'EVENT_ALREADY_CANCELLED',
+      'Event is already cancelled',
+    );
   }
 
   return prisma.event.update({
@@ -201,10 +268,17 @@ export async function updateTicketType(
   });
 
   if (!ticketType) {
-    throw new AppError(404, 'TICKET_TYPE_NOT_FOUND', 'Ticket type was not found');
+    throw new AppError(
+      404,
+      'TICKET_TYPE_NOT_FOUND',
+      'Ticket type was not found',
+    );
   }
 
-  if (input.capacity !== undefined && input.capacity < ticketType.reservedCount) {
+  if (
+    input.capacity !== undefined &&
+    input.capacity < ticketType.reservedCount
+  ) {
     throw new AppError(
       409,
       'CAPACITY_BELOW_RESERVED_COUNT',
@@ -247,7 +321,11 @@ export async function deleteTicketType(
   });
 
   if (removed.count === 0) {
-    throw new AppError(404, 'TICKET_TYPE_NOT_FOUND', 'Ticket type was not found');
+    throw new AppError(
+      404,
+      'TICKET_TYPE_NOT_FOUND',
+      'Ticket type was not found',
+    );
   }
 }
 
@@ -278,7 +356,11 @@ export async function createReservation(
       });
 
       if (incremented.count !== 1) {
-        await throwReservationAvailabilityError(eventId, ticketTypeId, transaction);
+        await throwReservationAvailabilityError(
+          eventId,
+          ticketTypeId,
+          transaction,
+        );
       }
 
       const reservation = await transaction.reservation.create({
@@ -309,9 +391,16 @@ export async function createReservation(
     return { created: true, reservation: decorateReservation(reservation) };
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      const concurrentReplay = await findReservationByKey(userId, idempotencyKey);
+      const concurrentReplay = await findReservationByKey(
+        userId,
+        idempotencyKey,
+      );
       if (concurrentReplay) {
-        return resolveReservationReplay(concurrentReplay, eventId, ticketTypeId);
+        return resolveReservationReplay(
+          concurrentReplay,
+          eventId,
+          ticketTypeId,
+        );
       }
     }
 
@@ -363,7 +452,11 @@ export async function getTicketQr(ticketId: string, userId: string) {
   }
 
   if (!ticket.qrCodeDataUrl) {
-    throw new AppError(409, 'TICKET_QR_NOT_READY', 'Ticket QR code is not ready');
+    throw new AppError(
+      409,
+      'TICKET_QR_NOT_READY',
+      'Ticket QR code is not ready',
+    );
   }
 
   return {
@@ -372,7 +465,11 @@ export async function getTicketQr(ticketId: string, userId: string) {
   };
 }
 
-export async function createCheckIn(eventId: string, operator: Principal, qrPayload: string) {
+export async function createCheckIn(
+  eventId: string,
+  operator: Principal,
+  qrPayload: string,
+) {
   await requireCheckInAccess(eventId, operator);
   const publicId = verifyTicketQrPayload(qrPayload);
 
@@ -383,7 +480,11 @@ export async function createCheckIn(eventId: string, operator: Principal, qrPayl
     });
 
     if (!ticket) {
-      throw new AppError(404, 'TICKET_NOT_FOUND', 'Ticket was not found for this event');
+      throw new AppError(
+        404,
+        'TICKET_NOT_FOUND',
+        'Ticket was not found for this event',
+      );
     }
 
     const consumed = await transaction.ticket.updateMany({
@@ -392,7 +493,11 @@ export async function createCheckIn(eventId: string, operator: Principal, qrPayl
     });
 
     if (consumed.count !== 1) {
-      throw new AppError(409, 'TICKET_ALREADY_USED', 'Ticket has already been used');
+      throw new AppError(
+        409,
+        'TICKET_ALREADY_USED',
+        'Ticket has already been used',
+      );
     }
 
     const checkIn = await transaction.checkIn.create({
@@ -437,7 +542,11 @@ const checkInInclude = {
   },
 } satisfies Prisma.CheckInInclude;
 
-function canViewEvent(status: EventStatus, organizerId: string, principal?: Principal): boolean {
+function canViewEvent(
+  status: EventStatus,
+  organizerId: string,
+  principal?: Principal,
+): boolean {
   return (
     status === 'PUBLISHED' ||
     principal?.role === 'ADMIN' ||
@@ -483,7 +592,11 @@ async function requireCheckInAccess(eventId: string, operator: Principal) {
   }
 
   if (operator.role !== 'ADMIN' && event.organizerId !== operator.id) {
-    throw new AppError(403, 'FORBIDDEN', 'You cannot manage check-ins for this event');
+    throw new AppError(
+      403,
+      'FORBIDDEN',
+      'You cannot manage check-ins for this event',
+    );
   }
 }
 
@@ -498,7 +611,11 @@ async function throwReservationAvailabilityError(
   });
 
   if (!event || event.status !== 'PUBLISHED') {
-    throw new AppError(409, 'EVENT_NOT_AVAILABLE', 'Event is not available for reservations');
+    throw new AppError(
+      409,
+      'EVENT_NOT_AVAILABLE',
+      'Event is not available for reservations',
+    );
   }
 
   const ticketType = await transaction.ticketType.findFirst({
@@ -507,7 +624,11 @@ async function throwReservationAvailabilityError(
   });
 
   if (!ticketType) {
-    throw new AppError(404, 'TICKET_TYPE_NOT_FOUND', 'Ticket type was not found');
+    throw new AppError(
+      404,
+      'TICKET_TYPE_NOT_FOUND',
+      'Ticket type was not found',
+    );
   }
 
   throw new AppError(409, 'TICKET_TYPE_SOLD_OUT', 'Ticket type is sold out');
@@ -527,7 +648,10 @@ function resolveReservationReplay<
     ticket: null | { publicId: string };
   },
 >(reservation: Reservation, eventId: string, ticketTypeId: string) {
-  if (reservation.eventId !== eventId || reservation.ticketTypeId !== ticketTypeId) {
+  if (
+    reservation.eventId !== eventId ||
+    reservation.ticketTypeId !== ticketTypeId
+  ) {
     throw new AppError(
       409,
       'IDEMPOTENCY_KEY_REUSED',
@@ -538,9 +662,9 @@ function resolveReservationReplay<
   return { created: false, reservation: decorateReservation(reservation) };
 }
 
-function decorateReservation<Reservation extends { ticket: null | { publicId: string } }>(
-  reservation: Reservation,
-) {
+function decorateReservation<
+  Reservation extends { ticket: null | { publicId: string } },
+>(reservation: Reservation) {
   return {
     ...reservation,
     ticket: reservation.ticket ? decorateTicket(reservation.ticket) : null,
@@ -552,9 +676,18 @@ function decorateTicket<Ticket extends { publicId: string }>(ticket: Ticket) {
 }
 
 function eventLocked(): AppError {
-  return new AppError(409, 'EVENT_NOT_DRAFT', 'Only draft events can be modified');
+  return new AppError(
+    409,
+    'EVENT_NOT_DRAFT',
+    'Only draft events can be modified',
+  );
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'P2002'
+  );
 }

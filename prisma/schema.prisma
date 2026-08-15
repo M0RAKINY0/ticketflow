@@ -19,6 +19,18 @@ enum EventStatus {
   CANCELLED
 }
 
+enum EventCategory {
+  MUSIC
+  BUSINESS
+  TECHNOLOGY
+  ARTS_CULTURE
+  FOOD_DRINK
+  SPORTS_FITNESS
+  COMMUNITY
+  EDUCATION
+  OTHER
+}
+
 enum ReservationStatus {
   CONFIRMED
   CANCELLED
@@ -49,23 +61,31 @@ model User {
 }
 
 model Event {
-  id           String        @id @default(uuid()) @db.Uuid
-  title        String
-  description  String
-  startsAt     DateTime      @db.Timestamptz(3)
-  endsAt       DateTime      @db.Timestamptz(3)
-  venue        String
-  status       EventStatus   @default(DRAFT)
-  organizerId  String        @db.Uuid
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
-  organizer    User          @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
-  ticketTypes  TicketType[]
-  reservations Reservation[]
-  checkIns     CheckIn[]
+  id            String        @id @default(uuid()) @db.Uuid
+  title         String
+  description   String
+  startsAt      DateTime      @db.Timestamptz(3)
+  endsAt        DateTime      @db.Timestamptz(3)
+  venue         String
+  category      EventCategory
+  coverImageUrl String?
+  city          String
+  countryCode   String        @db.Char(2)
+  currency      String        @db.Char(3)
+  timezone      String
+  status        EventStatus   @default(DRAFT)
+  organizerId   String        @db.Uuid
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  organizer     User          @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  ticketTypes   TicketType[]
+  reservations  Reservation[]
+  checkIns      CheckIn[]
 
   @@index([organizerId])
   @@index([status, startsAt])
+  @@index([status, category, startsAt])
+  @@index([status, countryCode, startsAt])
 }
 
 model TicketType {

@@ -34,16 +34,29 @@ function authorization(token: string): { Authorization: string } {
 }
 
 async function createEvent(token: string, title = 'Lagos Live') {
-  return request(createApp()).post('/api/v1/events').set(authorization(token)).send({
-    title,
-    description: 'An evening of live music.',
-    startsAt: futureStart,
-    endsAt: futureEnd,
-    venue: 'Civic Centre',
-  });
+  return request(createApp())
+    .post('/api/v1/events')
+    .set(authorization(token))
+    .send({
+      title,
+      description: 'An evening of live music.',
+      startsAt: futureStart,
+      endsAt: futureEnd,
+      venue: 'Civic Centre',
+      category: 'MUSIC',
+      coverImageUrl: 'https://images.example.com/lagos-live.jpg',
+      city: 'Lagos',
+      countryCode: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+    });
 }
 
-async function createTicketType(token: string, eventId: string, overrides = {}) {
+async function createTicketType(
+  token: string,
+  eventId: string,
+  overrides = {},
+) {
   return request(createApp())
     .post(`/api/v1/events/${eventId}/ticket-types`)
     .set(authorization(token))
@@ -57,10 +70,17 @@ async function createTicketType(token: string, eventId: string, overrides = {}) 
 }
 
 async function publishEvent(token: string, eventId: string) {
-  return request(createApp()).post(`/api/v1/events/${eventId}/publish`).set(authorization(token));
+  return request(createApp())
+    .post(`/api/v1/events/${eventId}/publish`)
+    .set(authorization(token));
 }
 
-async function reserve(token: string, eventId: string, ticketTypeId: string, key: string) {
+async function reserve(
+  token: string,
+  eventId: string,
+  ticketTypeId: string,
+  key: string,
+) {
   return request(createApp())
     .post(`/api/v1/events/${eventId}/reservations`)
     .set(authorization(token))
@@ -76,7 +96,9 @@ describe('event and ticket type management', () => {
     const eventId = created.body.data.event.id as string;
 
     const publicDraftList = await request(createApp()).get('/api/v1/events');
-    const publicDraftDetail = await request(createApp()).get(`/api/v1/events/${eventId}`);
+    const publicDraftDetail = await request(createApp()).get(
+      `/api/v1/events/${eventId}`,
+    );
     const ownerDraftList = await request(createApp())
       .get('/api/v1/events')
       .set(authorization(owner.token));
@@ -91,18 +113,32 @@ describe('event and ticket type management', () => {
       .set(authorization(owner.token))
       .send({ venue: 'Eko Hotel' });
     const published = await publishEvent(owner.token, eventId);
-    const publicPublishedList = await request(createApp()).get('/api/v1/events');
-    const publicPublishedDetail = await request(createApp()).get(`/api/v1/events/${eventId}`);
+    const publicPublishedList =
+      await request(createApp()).get('/api/v1/events');
+    const publicPublishedDetail = await request(createApp()).get(
+      `/api/v1/events/${eventId}`,
+    );
 
     expect(created.status).toBe(201);
     expect(created.body.data.event).toMatchObject({
       title: 'Lagos Live',
       status: 'DRAFT',
       organizerId: owner.user.id,
+      category: 'MUSIC',
+      coverImageUrl: 'https://images.example.com/lagos-live.jpg',
+      city: 'Lagos',
+      countryCode: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
     });
-    expect(publicDraftList.body.data.events).toHaveLength(0);
+    expect(publicDraftList.body.data).toMatchObject({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+    });
     expect(publicDraftDetail.status).toBe(404);
-    expect(ownerDraftList.body.data.events).toEqual([
+    expect(ownerDraftList.body.data.items).toEqual([
       expect.objectContaining({ id: eventId, status: 'DRAFT' }),
     ]);
     expect(forbiddenUpdate.status).toBe(403);
@@ -112,7 +148,7 @@ describe('event and ticket type management', () => {
     expect(updated.body.data.event.venue).toBe('Eko Hotel');
     expect(published.status).toBe(200);
     expect(published.body.data.event.status).toBe('PUBLISHED');
-    expect(publicPublishedList.body.data.events).toEqual([
+    expect(publicPublishedList.body.data.items).toEqual([
       expect.objectContaining({ id: eventId, status: 'PUBLISHED' }),
     ]);
     expect(publicPublishedDetail.body.data.event.id).toBe(eventId);
@@ -146,7 +182,9 @@ describe('event and ticket type management', () => {
       .delete(`/api/v1/events/${eventId}/ticket-types/${secondTypeId}`)
       .set(authorization(owner.token));
     await publishEvent(owner.token, eventId);
-    const publicList = await request(createApp()).get(`/api/v1/events/${eventId}/ticket-types`);
+    const publicList = await request(createApp()).get(
+      `/api/v1/events/${eventId}/ticket-types`,
+    );
     const lockedCreate = await createTicketType(owner.token, eventId, {
       name: 'Late Type',
     });
@@ -184,11 +222,142 @@ describe('event and ticket type management', () => {
     const cancelled = await request(createApp())
       .post(`/api/v1/events/${eventId}/cancel`)
       .set(authorization(owner.token));
-    const publicDetail = await request(createApp()).get(`/api/v1/events/${eventId}`);
+    const publicDetail = await request(createApp()).get(
+      `/api/v1/events/${eventId}`,
+    );
 
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.data.event.status).toBe('CANCELLED');
     expect(publicDetail.status).toBe(404);
+  });
+
+  it('rejects invalid global event data', async () => {
+    const owner = await createUser('invalid-global-owner', 'ORGANIZER');
+    const invalidCases = [
+      { coverImageUrl: 'http://images.example.com/event.jpg' },
+      { timezone: 'Mars/Olympus_Mons' },
+      { currency: 'NAIRA' },
+      { currency: 'ZZZ' },
+      { countryCode: 'NGA' },
+      { countryCode: 'ZZ' },
+      { endsAt: futureStart },
+    ];
+
+    for (const invalid of invalidCases) {
+      const response = await request(createApp())
+        .post('/api/v1/events')
+        .set(authorization(owner.token))
+        .send({
+          title: 'Invalid global event',
+          description: 'This event must not be persisted.',
+          startsAt: futureStart,
+          endsAt: futureEnd,
+          venue: 'Test venue',
+          category: 'TECHNOLOGY',
+          coverImageUrl: 'https://images.example.com/event.jpg',
+          city: 'Lagos',
+          countryCode: 'NG',
+          currency: 'NGN',
+          timezone: 'Africa/Lagos',
+          ...invalid,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+
+  it('filters and paginates published upcoming events while retaining organizer draft visibility', async () => {
+    const lagosOrganizer = await createUser(
+      'discovery-lagos-owner',
+      'ORGANIZER',
+    );
+    const londonOrganizer = await createUser(
+      'discovery-london-owner',
+      'ORGANIZER',
+    );
+    const lagosEvent = await createEvent(
+      lagosOrganizer.token,
+      'Lagos Jazz Night',
+    );
+    const londonEvent = await request(createApp())
+      .post('/api/v1/events')
+      .set(authorization(londonOrganizer.token))
+      .send({
+        title: 'London Product Forum',
+        description: 'A business gathering.',
+        startsAt: '2030-07-01T08:00:00.000Z',
+        endsAt: '2030-07-01T17:00:00.000Z',
+        venue: 'Barbican Centre',
+        category: 'BUSINESS',
+        city: 'London',
+        countryCode: 'GB',
+        currency: 'GBP',
+        timezone: 'Europe/London',
+      });
+
+    await createTicketType(lagosOrganizer.token, lagosEvent.body.data.event.id);
+    await createTicketType(
+      londonOrganizer.token,
+      londonEvent.body.data.event.id,
+    );
+    await publishEvent(lagosOrganizer.token, lagosEvent.body.data.event.id);
+    await publishEvent(londonOrganizer.token, londonEvent.body.data.event.id);
+    const draft = await createEvent(
+      lagosOrganizer.token,
+      'Lagos Private Rehearsal',
+    );
+
+    const publicFiltered = await request(createApp())
+      .get('/api/v1/events')
+      .query({
+        query: 'lagos',
+        category: 'MUSIC',
+        countryCode: 'ng',
+        from: '2030-01-01T00:00:00.000Z',
+        to: '2030-12-31T23:59:59.000Z',
+        page: 1,
+        pageSize: 1,
+      });
+    const organizerList = await request(createApp())
+      .get('/api/v1/events')
+      .query({ page: 1, pageSize: 10 })
+      .set(authorization(lagosOrganizer.token));
+    const invalidPageSize = await request(createApp())
+      .get('/api/v1/events')
+      .query({ pageSize: 101 });
+
+    expect(publicFiltered.status).toBe(200);
+    expect(publicFiltered.body.data).toMatchObject({
+      page: 1,
+      pageSize: 1,
+      total: 1,
+    });
+    expect(publicFiltered.body.data.items).toEqual([
+      expect.objectContaining({
+        id: lagosEvent.body.data.event.id,
+        category: 'MUSIC',
+        countryCode: 'NG',
+      }),
+    ]);
+    expect(organizerList.body.data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: lagosEvent.body.data.event.id,
+          status: 'PUBLISHED',
+        }),
+        expect.objectContaining({
+          id: draft.body.data.event.id,
+          status: 'DRAFT',
+        }),
+      ]),
+    );
+    expect(organizerList.body.data.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: londonEvent.body.data.event.id }),
+      ]),
+    );
+    expect(invalidPageSize.status).toBe(400);
   });
 });
 
@@ -204,8 +373,18 @@ describe('reservations and attendee tickets', () => {
     const ticketTypeId = createdType.body.data.ticketType.id as string;
     await publishEvent(owner.token, eventId);
 
-    const first = await reserve(attendee.token, eventId, ticketTypeId, 'reserve-once');
-    const replay = await reserve(attendee.token, eventId, ticketTypeId, 'reserve-once');
+    const first = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      'reserve-once',
+    );
+    const replay = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      'reserve-once',
+    );
     const reservationId = first.body.data.reservation.id as string;
     const ticketId = first.body.data.reservation.ticket.id as string;
     const storedTicket = await prisma.ticket.findUniqueOrThrow({
@@ -231,15 +410,21 @@ describe('reservations and attendee tickets', () => {
     expect(replay.status).toBe(200);
     expect(replay.body.data.reservation.id).toBe(reservationId);
     expect(first.body.data.reservation.ticket.status).toBe('READY');
-    expect(first.body.data.reservation.ticket.qrPayload).toMatch(/^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/);
-    expect(first.body.data.reservation.ticket.qrPayload).not.toContain(attendee.user.id);
+    expect(first.body.data.reservation.ticket.qrPayload).toMatch(
+      /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/,
+    );
+    expect(first.body.data.reservation.ticket.qrPayload).not.toContain(
+      attendee.user.id,
+    );
     expect(first.body.data.reservation.ticket.qrPayload).not.toContain(eventId);
     expect(storedTicket.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
     expect(storedType.reservedCount).toBe(1);
     expect(reservations.body.data.reservations).toEqual([
       expect.objectContaining({ id: reservationId }),
     ]);
-    expect(tickets.body.data.tickets).toEqual([expect.objectContaining({ id: ticketId })]);
+    expect(tickets.body.data.tickets).toEqual([
+      expect.objectContaining({ id: ticketId }),
+    ]);
     expect(ticket.body.data.ticket.id).toBe(ticketId);
     expect(qr.body.data.qrCodeDataUrl).toBe(storedTicket.qrCodeDataUrl);
   });
@@ -264,10 +449,12 @@ describe('reservations and attendee tickets', () => {
       where: { id: ticketTypeId },
     });
 
-    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
-    expect(responses.find((response) => response.status === 409)?.body.error.code).toBe(
-      'TICKET_TYPE_SOLD_OUT',
-    );
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
+    expect(
+      responses.find((response) => response.status === 409)?.body.error.code,
+    ).toBe('TICKET_TYPE_SOLD_OUT');
     expect(storedType.reservedCount).toBe(1);
   });
 
@@ -284,7 +471,12 @@ describe('reservations and attendee tickets', () => {
     });
     await publishEvent(owner.token, eventId);
 
-    await reserve(attendee.token, eventId, firstType.body.data.ticketType.id, 'same-key');
+    await reserve(
+      attendee.token,
+      eventId,
+      firstType.body.data.ticketType.id,
+      'same-key',
+    );
     const conflict = await reserve(
       attendee.token,
       eventId,
@@ -310,8 +502,14 @@ describe('ticket check-in', () => {
     });
     const ticketTypeId = createdType.body.data.ticketType.id as string;
     await publishEvent(owner.token, eventId);
-    const reservation = await reserve(attendee.token, eventId, ticketTypeId, 'checkin-ticket');
-    const qrPayload = reservation.body.data.reservation.ticket.qrPayload as string;
+    const reservation = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      'checkin-ticket',
+    );
+    const qrPayload = reservation.body.data.reservation.ticket
+      .qrPayload as string;
 
     const forbidden = await request(createApp())
       .post(`/api/v1/events/${eventId}/check-ins`)
@@ -340,10 +538,12 @@ describe('ticket check-in', () => {
       .send({ qrPayload: `${qrPayload.slice(0, -1)}${replacement}` });
 
     expect(forbidden.status).toBe(403);
-    expect(attempts.map((response) => response.status).sort()).toEqual([201, 409]);
-    expect(attempts.find((response) => response.status === 409)?.body.error.code).toBe(
-      'TICKET_ALREADY_USED',
-    );
+    expect(attempts.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
+    expect(
+      attempts.find((response) => response.status === 409)?.body.error.code,
+    ).toBe('TICKET_ALREADY_USED');
     expect(ownerList.body.data.checkIns).toHaveLength(1);
     expect(adminList.body.data.checkIns).toHaveLength(1);
     expect(invalidQr.status).toBe(400);
