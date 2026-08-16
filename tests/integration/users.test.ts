@@ -13,7 +13,7 @@ afterEach(async () => {
   });
 });
 
-async function createUser(label: string, role: 'USER' | 'ORGANIZER' | 'ADMIN') {
+async function createUser(label: string, role: 'USER' | 'ADMIN') {
   const user = await prisma.user.create({
     data: {
       email: `${USER_TEST_PREFIX}${label}@example.com`,
@@ -31,7 +31,7 @@ describe('admin user listing', () => {
   it('searches and paginates public user fields for admins only', async () => {
     const admin = await createUser('admin', 'ADMIN');
     const member = await createUser('ada-member', 'USER');
-    await createUser('other-organizer', 'ORGANIZER');
+    await createUser('other-user', 'USER');
 
     const response = await request(createApp())
       .get('/api/v1/users')

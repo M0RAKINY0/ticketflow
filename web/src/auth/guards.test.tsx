@@ -32,7 +32,7 @@ describe('route guards', () => {
     const router = createMemoryRouter(
       [
         {
-          element: <RequireRole roles={['ORGANIZER']} />,
+          element: <RequireRole roles={['ADMIN']} />,
           children: [{ path: '/organizer', element: <Outlet /> }],
         },
         { path: '/', element: <p>Discover</p> },

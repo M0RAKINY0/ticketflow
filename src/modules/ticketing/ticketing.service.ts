@@ -5,6 +5,7 @@ import type {
 } from '../../generated/prisma/client.js';
 import { prisma } from '../../infrastructure/prisma.js';
 import { AppError } from '../../shared/errors.js';
+import { canManageEvent } from './authorization.js';
 import {
   createTicketPublicId,
   createTicketQrDataUrl,
@@ -46,8 +47,13 @@ export async function listEvents(query: DiscoveryQuery, principal?: Principal) {
   const visibility: Prisma.EventWhereInput =
     principal?.role === 'ADMIN'
       ? {}
-      : principal?.role === 'ORGANIZER'
-        ? { organizerId: principal.id }
+      : principal
+        ? {
+            OR: [
+              { status: 'PUBLISHED', startsAt: { gte: new Date() } },
+              { organizerId: principal.id },
+            ],
+          }
         : { status: 'PUBLISHED', startsAt: { gte: new Date() } };
 
   const filters: Prisma.EventWhereInput[] = [];
@@ -129,10 +135,10 @@ export function createEvent(organizerId: string, input: CreateEventInput) {
 
 export async function updateEvent(
   eventId: string,
-  organizerId: string,
+  principal: Principal,
   input: UpdateEventInput,
 ) {
-  const event = await requireOwnedEvent(eventId, organizerId);
+  const event = await requireOwnedEvent(eventId, principal);
 
   if (event.status !== 'DRAFT') {
     throw eventLocked();
@@ -170,9 +176,9 @@ export async function updateEvent(
   });
 }
 
-export async function publishEvent(eventId: string, organizerId: string) {
+export async function publishEvent(eventId: string, principal: Principal) {
   return prisma.$transaction(async (transaction) => {
-    const event = await requireOwnedEvent(eventId, organizerId, transaction);
+    const event = await requireOwnedEvent(eventId, principal, transaction);
 
     if (event.status !== 'DRAFT') {
       throw eventLocked();
@@ -197,8 +203,8 @@ export async function publishEvent(eventId: string, organizerId: string) {
   });
 }
 
-export async function cancelEvent(eventId: string, organizerId: string) {
-  const event = await requireOwnedEvent(eventId, organizerId);
+export async function cancelEvent(eventId: string, principal: Principal) {
+  const event = await requireOwnedEvent(eventId, principal);
 
   if (event.status === 'CANCELLED') {
     throw new AppError(
@@ -226,10 +232,10 @@ export async function listTicketTypes(eventId: string, principal?: Principal) {
 
 export async function createTicketType(
   eventId: string,
-  organizerId: string,
+  principal: Principal,
   input: CreateTicketTypeInput,
 ) {
-  await requireDraftOwnedEvent(eventId, organizerId);
+  await requireDraftOwnedEvent(eventId, principal);
 
   try {
     const data: Prisma.TicketTypeUncheckedCreateInput = {
@@ -259,10 +265,10 @@ export async function createTicketType(
 export async function updateTicketType(
   eventId: string,
   ticketTypeId: string,
-  organizerId: string,
+  principal: Principal,
   input: UpdateTicketTypeInput,
 ) {
-  await requireDraftOwnedEvent(eventId, organizerId);
+  await requireDraftOwnedEvent(eventId, principal);
   const ticketType = await prisma.ticketType.findFirst({
     where: { id: ticketTypeId, eventId },
   });
@@ -313,9 +319,9 @@ export async function updateTicketType(
 export async function deleteTicketType(
   eventId: string,
   ticketTypeId: string,
-  organizerId: string,
+  principal: Principal,
 ): Promise<void> {
-  await requireDraftOwnedEvent(eventId, organizerId);
+  await requireDraftOwnedEvent(eventId, principal);
   const removed = await prisma.ticketType.deleteMany({
     where: { id: ticketTypeId, eventId },
   });
@@ -549,14 +555,13 @@ function canViewEvent(
 ): boolean {
   return (
     status === 'PUBLISHED' ||
-    principal?.role === 'ADMIN' ||
-    (principal?.role === 'ORGANIZER' && principal.id === organizerId)
+    principal !== undefined && canManageEvent(principal, organizerId)
   );
 }
 
 async function requireOwnedEvent(
   eventId: string,
-  organizerId: string,
+  principal: Principal,
   client: Prisma.TransactionClient | typeof prisma = prisma,
 ) {
   const event = await client.event.findUnique({ where: { id: eventId } });
@@ -565,15 +570,15 @@ async function requireOwnedEvent(
     throw new AppError(404, 'EVENT_NOT_FOUND', 'Event was not found');
   }
 
-  if (event.organizerId !== organizerId) {
+  if (!canManageEvent(principal, event.organizerId)) {
     throw new AppError(403, 'FORBIDDEN', 'You do not own this event');
   }
 
   return event;
 }
 
-async function requireDraftOwnedEvent(eventId: string, organizerId: string) {
-  const event = await requireOwnedEvent(eventId, organizerId);
+async function requireDraftOwnedEvent(eventId: string, principal: Principal) {
+  const event = await requireOwnedEvent(eventId, principal);
   if (event.status !== 'DRAFT') {
     throw eventLocked();
   }
@@ -591,7 +596,7 @@ async function requireCheckInAccess(eventId: string, operator: Principal) {
     throw new AppError(404, 'EVENT_NOT_FOUND', 'Event was not found');
   }
 
-  if (operator.role !== 'ADMIN' && event.organizerId !== operator.id) {
+  if (!canManageEvent(operator, event.organizerId)) {
     throw new AppError(
       403,
       'FORBIDDEN',

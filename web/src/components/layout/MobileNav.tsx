@@ -9,7 +9,7 @@ export function MobileNav() {
     <nav className="mobile-nav" aria-label="Mobile navigation">
       <NavItem to="/" label="Explore" icon={<Compass />} />
       <NavItem to="/tickets" label="Tickets" icon={<Ticket />} />
-      {session.status === 'authenticated' && session.user.role !== 'USER' ? <NavItem to="/organizer/events" label="Create" icon={<Plus />} /> : null}
+      {session.status === 'authenticated' ? <NavItem to="/organizer/events" label="Create" icon={<Plus />} /> : null}
       <NavItem to={session.status === 'authenticated' ? '/account' : '/login'} label="Account" icon={<UserRound />} />
     </nav>
   );

@@ -2,19 +2,19 @@
 
 ## Purpose
 
-Complete the smallest backend that satisfies Ventra's core ticketing flow: organizers create publishable events with capacity-limited ticket types, users reserve tickets, each ticket receives a QR code, and organizers perform one-time check-in.
+Complete the smallest backend that satisfies Ventra's core ticketing flow: authenticated users create publishable events with capacity-limited ticket types, users reserve tickets, each ticket receives a QR code, and event owners perform one-time check-in.
 
 This plan supersedes the remaining infrastructure-heavy tasks in `docs/superpowers/plans/2026-08-14-ventra-ticketing-backend.md`.
 
 ## Included
 
-- Existing JWT authentication and `USER`, `ORGANIZER`, `ADMIN` authorization.
-- Organizer-owned event create, update, publish, cancel, list, and detail endpoints.
+- Existing JWT authentication and `USER`, `ADMIN` authorization.
+- User-owned event create, update, publish, cancel, list, and detail endpoints.
 - Ticket-type create, update, delete, and public listing endpoints.
 - Transactional, idempotent reservations that cannot exceed capacity.
 - Synchronous QR generation during reservation, stored as a data URL on the ticket record.
 - Attendee ticket list/detail endpoints.
-- Organizer/admin one-time ticket check-in and event check-in listing.
+- Owner/admin one-time ticket check-in and event check-in listing.
 - Stable validation/error responses and integration tests for the complete flow.
 
 ## Excluded
@@ -51,7 +51,7 @@ The existing `Event`, `TicketType`, `Reservation`, `Ticket`, and `CheckIn` model
 
 ## Implementation Chunks
 
-1. Add event and ticket-type modules with organizer ownership and publication rules.
+1. Add event and ticket-type modules with event ownership and publication rules.
 2. Add atomic reservation creation using conditional inventory updates and idempotency keys.
 3. Generate an opaque signed QR payload and PNG data URL synchronously when the ticket is created.
 4. Add attendee ticket retrieval and organizer/admin one-time check-in.
@@ -61,7 +61,7 @@ The existing `Event`, `TicketType`, `Reservation`, `Ticket`, and `CheckIn` model
 ## Completion Criteria
 
 - A public user sees only published events.
-- An organizer cannot modify another organizer's event.
+- A user cannot modify another user's event, while an admin can manage any event.
 - An event cannot publish without a ticket type.
 - Concurrent reservations never exceed ticket capacity.
 - Repeating an idempotency key returns the original reservation without consuming inventory twice.

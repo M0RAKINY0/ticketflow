@@ -22,6 +22,13 @@ describe('Ventra router', () => {
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(router.state.location.search).toBe('?returnTo=%2Ftickets');
   });
+
+  it('shows Create event and allows a signed-in user into event management', async () => {
+    renderRouter(['/organizer/events'], authenticatedUserSession);
+
+    expect(await screen.findByRole('link', { name: 'Create event' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your events' })).toBeInTheDocument();
+  });
 });
 
 function renderRouter(entries: string[], session: SessionContextValue) {
@@ -41,4 +48,18 @@ const anonymousSession: SessionContextValue = {
   login: async () => undefined,
   register: async () => undefined,
   logout: async () => undefined,
+};
+
+const authenticatedUserSession: SessionContextValue = {
+  ...anonymousSession,
+  status: 'authenticated',
+  user: {
+    id: '00000000-0000-4000-8000-000000000001',
+    email: 'ada@example.com',
+    name: 'Ada User',
+    phoneNumber: '+2348000000000',
+    role: 'USER',
+    createdAt: '2026-08-16T00:00:00.000Z',
+    updatedAt: '2026-08-16T00:00:00.000Z',
+  },
 };

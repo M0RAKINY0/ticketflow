@@ -36,7 +36,7 @@ export function DiscoveryPage() {
       <nav className="category-rail" aria-label="Event categories">{categories.map(([value, label]) => <button className={filters.category === value ? 'active' : ''} key={value} type="button" onClick={() => update('category', filters.category === value ? undefined : value)}>{label}</button>)}</nav>
     </div></section>
     <section className="events-section page-width" aria-labelledby="events-heading">
-      <div className="section-heading"><div><h2 id="events-heading">What’s happening</h2><p>{filters.q ? `Results for “${filters.q}”` : 'Fresh picks from organizers around the world.'}</p></div></div>
+      <div className="section-heading"><div><h2 id="events-heading">What’s happening</h2><p>{filters.q ? `Results for “${filters.q}”` : 'Fresh picks from event hosts around the world.'}</p></div></div>
       {events.isLoading ? <LoadingState label="Finding events…" /> : events.isError ? <ErrorState action={<Button variant="secondary" onClick={() => void events.refetch()}>Try again</Button>} /> : !events.data?.items.length ? <EmptyState title="No events match yet" message="Try a different search or clear a filter." action={<Link className="button button--secondary" to="/">Clear filters</Link>} /> : <><div className="event-grid">{events.data.items.map((event) => <EventCard event={event} key={event.id} />)}</div><Pagination page={events.data.page} pageSize={events.data.pageSize} total={events.data.total} onPage={(page) => { const next = new URLSearchParams(params); page > 1 ? next.set('page', String(page)) : next.delete('page'); setParams(next); }} /></>}
     </section>
   </main>;

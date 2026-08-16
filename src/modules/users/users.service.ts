@@ -2,7 +2,7 @@ import type { User } from '../../generated/prisma/client.js';
 import { AppError } from '../../shared/errors.js';
 import { usersRepository } from './users.repository.js';
 
-type AssignableRole = 'USER' | 'ORGANIZER';
+type AssignableRole = 'USER' | 'ADMIN';
 type PublicUser = Omit<User, 'passwordHash'>;
 
 function toPublicUser(user: User): PublicUser {
@@ -35,7 +35,7 @@ export async function assignRole(
 
 export async function listUsers(input: {
   query?: string | undefined;
-  role?: 'USER' | 'ORGANIZER' | 'ADMIN' | undefined;
+  role?: 'USER' | 'ADMIN' | undefined;
   page: number;
   pageSize: number;
 }) {

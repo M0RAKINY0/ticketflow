@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver Ventra's responsive public, attendee, organizer, and administrator web application on top of the existing ticketing API, including secure browser sessions, global event discovery, offline viewed tickets, and camera/manual check-in.
+**Goal:** Deliver Ventra's responsive public, attendee, event-owner, and administrator web application on top of the existing ticketing API, including secure browser sessions, global event discovery, offline viewed tickets, and camera/manual check-in.
 
 **Architecture:** Keep the existing Express/Prisma API as the source of truth and add a React 19 + Vite application in `web/`. Production is same-origin: Express serves `web/dist` after API and health routes; development uses Vite's proxy. Access tokens live only in memory, refresh tokens rotate in an HttpOnly cookie, remote data lives in TanStack Query, and only deliberately viewed ticket records are persisted in IndexedDB.
 
@@ -46,7 +46,7 @@
 - `web/src/lib/`: formatting, event-local date conversion, idempotency intent, and IndexedDB helpers.
 - `web/src/features/discovery/`: event search/filter/list/detail/reservation.
 - `web/src/features/tickets/`: ticket lists, detail, QR presentation, and offline records.
-- `web/src/features/organizer/`: owned event list, event editor, ticket types, publish/cancel, and summaries.
+- `web/src/features/organizer/`: owned event list, event editor, ticket types, publish/cancel, and summaries for any authenticated user.
 - `web/src/features/check-in/`: camera/manual scanner and live history.
 - `web/src/features/admin/`: user search/filter and safe role changes.
 - `web/tests/` and `e2e/`: frontend integration, accessibility, and browser acceptance tests.
@@ -71,7 +71,7 @@
 
 - [ ] **Step 1: Write failing backend tests**
 
-Add cases that create a global event, reject `http://` cover URLs, invalid IANA zones/currency/country codes, and invalid date order. Add public discovery cases for query, category, date, country, pagination, published/upcoming visibility, and organizer-owned draft visibility. Assert `pageSize` defaults to 20 and is bounded from 1 through 100.
+Add cases that create a global event, reject `http://` cover URLs, invalid IANA zones/currency/country codes, and invalid date order. Add public discovery cases for query, category, date, country, pagination, published/upcoming visibility, and owner-owned draft visibility. Assert `pageSize` defaults to 20 and is bounded from 1 through 100.
 
 ```ts
 const response = await request(app).get('/api/v1/events').query({
@@ -203,7 +203,7 @@ git commit -m "feat: add global event discovery"
 
 Assert `Set-Cookie` contains `HttpOnly`, `SameSite=Lax`, `Path=/api/v1/auth`, `Max-Age=2592000`, and `Secure` only when production is configured. Assert refresh accepts the cookie, rotates its value, rejects missing/invalid cookies, and old rotated cookies cannot be reused. Assert logout clears with matching attributes. Assert public auth JSON never contains `refreshToken` or `passwordHash`.
 
-For `/users`, cover case-insensitive email/name query, optional `USER|ORGANIZER|ADMIN` filtering, pagination, public field selection, non-admin 403, and rejection of attempts to assign `ADMIN` through the existing role endpoint.
+For `/users`, cover case-insensitive email/name query, optional `USER|ADMIN` filtering, pagination, public field selection, non-admin 403, and rejection of unsupported role values through the existing role endpoint.
 
 - [ ] **Step 2: Run focused tests and record RED**
 
@@ -245,7 +245,7 @@ export type PublicUser = {
   email: string;
   name: string;
   phoneNumber: string;
-  role: 'USER' | 'ORGANIZER' | 'ADMIN';
+  role: 'USER' | 'ADMIN';
   createdAt: Date;
 };
 ```
@@ -500,7 +500,7 @@ git commit -m "feat: add attendee tickets with offline access"
 
 ---
 
-### Task 6: Organizer event and ticket-type operations
+### Task 6: Event-owner event and ticket-type operations
 
 **Files:**
 - Create: `web/src/features/organizer/organizer-api.ts`, `organizer-types.ts`
@@ -513,12 +513,12 @@ git commit -m "feat: add attendee tickets with offline access"
 - Create: `web/src/features/organizer/OrganizerEventPage.test.tsx`
 
 **Interfaces:**
-- Consumes organizer event CRUD, ticket-type CRUD, publish/cancel, and check-in list endpoints.
+- Consumes event-owner event CRUD, ticket-type CRUD, publish/cancel, and check-in list endpoints.
 - Produces `toUtcInstant(localDateTime, timeZone): string` with DST gap/ambiguity validation.
 
-- [ ] **Step 1: Write failing organizer tests**
+- [ ] **Step 1: Write failing event-owner tests**
 
-Cover draft/published/cancelled grouping, organizer-only guards, local event time converted to a UTC instant, invalid IANA zone, DST-skipped local time rejection, field errors, HTTPS cover validation, shared currency display, ticket capacity constraints, publish/cancel confirmation, draft-only editing, and unsaved-change navigation protection.
+Cover draft/published/cancelled grouping, authenticated event-owner access, local event time converted to a UTC instant, invalid IANA zone, DST-skipped local time rejection, field errors, HTTPS cover validation, shared currency display, ticket capacity constraints, publish/cancel confirmation, draft-only editing, and unsaved-change navigation protection.
 
 - [ ] **Step 2: Run focused tests and record RED**
 
@@ -530,7 +530,7 @@ Expected: FAIL because organizer modules do not exist.
 
 Use the platform `Temporal` API only if available in the project's Node/browser targets; otherwise add the maintained `@js-temporal/polyfill` package and use `Temporal.ZonedDateTime.from`. Require an explicit timezone before converting local inputs, reject nonexistent/ambiguous wall times with a linked form error, and submit UTC ISO strings. Keep currency at event level and never duplicate it on ticket-type forms.
 
-- [ ] **Step 4: Build organizer pages in working layers**
+- [ ] **Step 4: Build event-owner pages in working layers**
 
 First deliver owned-event lists and empty states. Then deliver creation with event basics/global fields, save the draft, and add ticket types against the returned event ID. Finally add overview counts, edit, publish, cancel, and check-in entry. Disable destructive/conflicting mutations while one is pending and invalidate only the affected event/list queries.
 
@@ -545,7 +545,7 @@ npm run build:web
 
 ```powershell
 git add package.json package-lock.json web/src/features/organizer web/src/lib/zoned-date-time.ts
-git commit -m "feat: add organizer event operations"
+git commit -m "feat: add event-owner event operations"
 ```
 
 ---
@@ -561,7 +561,7 @@ git commit -m "feat: add organizer event operations"
 
 **Interfaces:**
 - Scanner state is exactly `idle | requesting | scanning | validating | success | already-used | wrong-event | invalid | permission-denied | offline`.
-- Admin UI permits only `USER` and `ORGANIZER` assignment and treats backend 403 as authoritative.
+- Admin UI permits only `USER` and `ADMIN` assignment and treats backend 403 as authoritative.
 
 - [ ] **Step 1: Write failing scanner and admin tests**
 
@@ -588,7 +588,7 @@ Create the ZXing controls only after the user presses Start camera. Stop media t
 
 - [ ] **Step 4: Implement admin user management**
 
-Keep `q`, `role`, and `page` in the URL. Display name, email, current role, and creation date. Open a focus-trapped confirmation dialog for USER/ORGANIZER changes, disable repeat submission, update the row after success, and show a durable inline error after failure.
+Keep `q`, `role`, and `page` in the URL. Display name, email, current role, and creation date. Open a focus-trapped confirmation dialog for USER/ADMIN changes, disable repeat submission, update the row after success, and show a durable inline error after failure.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -642,8 +642,8 @@ Build API/health middleware first, then `express.static(webDist, { index: false,
 Use deterministic API/database setup and test these complete flows:
 
 1. Register, discover/filter, reserve, open ticket, reload that viewed ticket offline.
-2. Organizer creates a globally located event and ticket types, publishes, and checks in a ticket using manual payload entry.
-3. Admin searches for a user and promotes the account to organizer.
+2. A signed-in user creates a globally located event and ticket types, publishes, and checks in a ticket using manual payload entry.
+3. Admin searches for a user and changes the account type between User and Admin.
 4. Desktop and mobile route smoke, keyboard navigation, direct-route production refresh, and same-origin API requests.
 
 Run Chromium projects at 1440 by 900 and a representative 390 by 844 mobile viewport. Do not make the test depend on a physical camera.

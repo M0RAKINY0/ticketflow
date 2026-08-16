@@ -76,7 +76,6 @@ ticketingRouter.get(
 ticketingRouter.post(
   '/events',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const input = createEventSchema.parse(request.body);
@@ -91,12 +90,11 @@ ticketingRouter.post(
 ticketingRouter.patch(
   '/events/:eventId',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);
       const input = updateEventSchema.parse(request.body);
-      const event = await updateEvent(eventId, request.principal!.id, input);
+      const event = await updateEvent(eventId, request.principal!, input);
       response.status(200).json(success({ event }));
     } catch (error) {
       next(mapValidationError(error));
@@ -107,11 +105,10 @@ ticketingRouter.patch(
 ticketingRouter.post(
   '/events/:eventId/publish',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);
-      const event = await publishEvent(eventId, request.principal!.id);
+      const event = await publishEvent(eventId, request.principal!);
       response.status(200).json(success({ event }));
     } catch (error) {
       next(mapValidationError(error));
@@ -122,11 +119,10 @@ ticketingRouter.post(
 ticketingRouter.post(
   '/events/:eventId/cancel',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);
-      const event = await cancelEvent(eventId, request.principal!.id);
+      const event = await cancelEvent(eventId, request.principal!);
       response.status(200).json(success({ event }));
     } catch (error) {
       next(mapValidationError(error));
@@ -151,14 +147,13 @@ ticketingRouter.get(
 ticketingRouter.post(
   '/events/:eventId/ticket-types',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);
       const input = createTicketTypeSchema.parse(request.body);
       const ticketType = await createTicketType(
         eventId,
-        request.principal!.id,
+        request.principal!,
         input,
       );
       response.status(201).json(success({ ticketType }));
@@ -171,7 +166,6 @@ ticketingRouter.post(
 ticketingRouter.patch(
   '/events/:eventId/ticket-types/:ticketTypeId',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId, ticketTypeId } = ticketTypeParamsSchema.parse(
@@ -181,7 +175,7 @@ ticketingRouter.patch(
       const ticketType = await updateTicketType(
         eventId,
         ticketTypeId,
-        request.principal!.id,
+        request.principal!,
         input,
       );
       response.status(200).json(success({ ticketType }));
@@ -194,13 +188,12 @@ ticketingRouter.patch(
 ticketingRouter.delete(
   '/events/:eventId/ticket-types/:ticketTypeId',
   authenticate,
-  requireRole('ORGANIZER'),
   async (request, response, next) => {
     try {
       const { eventId, ticketTypeId } = ticketTypeParamsSchema.parse(
         request.params,
       );
-      await deleteTicketType(eventId, ticketTypeId, request.principal!.id);
+      await deleteTicketType(eventId, ticketTypeId, request.principal!);
       response.status(204).send();
     } catch (error) {
       next(mapValidationError(error));
@@ -295,7 +288,6 @@ ticketingRouter.get(
 ticketingRouter.post(
   '/events/:eventId/check-ins',
   authenticate,
-  requireRole('ORGANIZER', 'ADMIN'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);
@@ -315,7 +307,6 @@ ticketingRouter.post(
 ticketingRouter.get(
   '/events/:eventId/check-ins',
   authenticate,
-  requireRole('ORGANIZER', 'ADMIN'),
   async (request, response, next) => {
     try {
       const { eventId } = eventIdParamsSchema.parse(request.params);

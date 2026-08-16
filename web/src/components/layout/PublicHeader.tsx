@@ -12,7 +12,7 @@ export function PublicHeader() {
         <nav className="desktop-nav" aria-label="Primary navigation">
           <NavLink to="/">Explore</NavLink>
           {session.status === 'authenticated' ? <NavLink to="/tickets"><Ticket size={17} />My tickets</NavLink> : null}
-          {session.status === 'authenticated' && session.user.role !== 'USER' ? <NavLink to="/organizer/events"><CalendarPlus size={17} />Create event</NavLink> : null}
+          {session.status === 'authenticated' ? <NavLink to="/organizer/events"><CalendarPlus size={17} />Create event</NavLink> : null}
         </nav>
         <div className="site-header__actions">
           {session.status === 'authenticated' ? (

@@ -28,9 +28,9 @@ export const appRoutes: RouteObject[] = [
         ],
       },
       {
-        element: <RequireRole roles={['ORGANIZER', 'ADMIN']} />,
+        element: <RequireUser />,
         children: [
-          { path: 'organizer/events', element: <RoutePlaceholder title="Organizer workspace" /> },
+          { path: 'organizer/events', element: <RoutePlaceholder title="Your events" /> },
           { path: 'organizer/scan', element: <RoutePlaceholder title="Check in guests" /> },
         ],
       },

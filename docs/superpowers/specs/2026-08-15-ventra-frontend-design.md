@@ -2,13 +2,13 @@
 
 ## Goal
 
-Build a production-ready, responsive React frontend for the existing Ventra ticketing API. The same web application serves public visitors, attendees, organizers, and administrators while keeping event discovery as the primary public experience.
+Build a production-ready, responsive React frontend for the existing Ventra ticketing API. The same web application serves public visitors, users, event owners, and administrators while keeping event discovery as the primary public experience.
 
 ## Product Direction
 
 Ventra uses familiar event-marketplace conventions at an Eventbrite and Luma quality bar. The visual system is restrained and content-led: white and near-white surfaces, graphite text, electric indigo as the primary action color, event photography or branded fallbacks, crisp dividers, moderate radii, and a single contemporary workhorse sans family. The experience must feel polished and trustworthy rather than experimental.
 
-The public shell uses top navigation with search, Explore, My Tickets, Create Event, and account controls. Authenticated organizer and admin areas may introduce denser local navigation, but users remain within one coherent product. Mobile uses compact headers and a bottom navigation where it materially improves attendee tasks.
+The public shell uses top navigation with search, Explore, My Tickets, Create Event, and account controls. Authenticated event-owner and admin areas may introduce denser local navigation, but users remain within one coherent product. Mobile uses compact headers and a bottom navigation where it materially improves attendee tasks.
 
 ## Frontend Architecture
 
@@ -30,7 +30,7 @@ Do not add Redux. Remote API data stays in TanStack Query; short-lived UI state 
 ### Public and authentication
 
 - `/` — discovery homepage with query, category, date, and location filters plus paginated event cards.
-- `/events/:eventId` — event detail, organizer identity, authoritative event-local time, venue/location, ticket types, availability, and reserve action.
+- `/events/:eventId` — event detail, event-owner identity, authoritative event-local time, venue/location, ticket types, availability, and reserve action.
 - `/login` and `/register` — focused account flows with return-to-intended-page behavior.
 
 Published events are public. Reserving redirects anonymous visitors to login and returns them to the selected event afterward.
@@ -43,7 +43,7 @@ Published events are public. Reserving redirects anonymous visitors to login and
 
 Opening a ticket stores only that user’s minimum ticket display record and QR data in IndexedDB. Logout removes cached user tickets. The service worker caches the application shell and static assets, not arbitrary authenticated API responses.
 
-### Organizer
+### Event owner (any authenticated User)
 
 - `/organizer/events` — owned events grouped by draft, published, and cancelled state.
 - `/organizer/events/new` — event creation wizard: basics, global location/time/currency, cover image URL, then ticket types.
@@ -55,9 +55,9 @@ The scanner requests camera permission only after an explicit action. It pauses 
 
 ### Administrator
 
-- `/admin/users` — paginated user search with role filter and controlled `USER`/`ORGANIZER` role changes.
+- `/admin/users` — paginated user search with `USER`/`ADMIN` role filter and controlled role changes.
 
-The interface never offers assignment of `ADMIN`.
+The interface never offers an Organizer role; the only account types are User and Admin.
 
 ## Required Backend Changes
 
@@ -80,10 +80,10 @@ Event date/time inputs are interpreted in the selected event timezone and stored
 
 ### Discovery and administration APIs
 
-- `GET /api/v1/events?query=&category=&from=&to=&countryCode=&page=&pageSize=` returns `{ items, page, pageSize, total }`. Public results include only published upcoming events; organizer/admin visibility continues to respect role and ownership.
+- `GET /api/v1/events?query=&category=&from=&to=&countryCode=&page=&pageSize=` returns `{ items, page, pageSize, total }`. Public results include only published upcoming events; authenticated users also see their owned events and admins see all.
 - `GET /api/v1/users?query=&role=&page=&pageSize=` is admin-only and returns public user fields with pagination.
 
-Validate bounded page sizes and indexed filters. Search title, venue, city, and organizer name case-insensitively. Add database indexes for public category/date and country/date queries.
+Validate bounded page sizes and indexed filters. Search title, venue, city, and event-owner name case-insensitively. Add database indexes for public category/date and country/date queries.
 
 ### Production integration
 
@@ -97,7 +97,7 @@ Vite development proxies `/api` and `/health` to Express. Production Express ser
 - Currency uses the event’s ISO code with `Intl.NumberFormat`; dates use `Intl.DateTimeFormat` with the event timezone.
 - Remote cover images use HTTPS, no-referrer behavior, fixed aspect ratios, lazy loading, and a branded category fallback.
 - Route guards hide inaccessible navigation and still treat backend `401/403` responses as authoritative.
-- Forms preserve input after validation or network failure and warn before abandoning unsaved organizer edits.
+- Forms preserve input after validation or network failure and warn before abandoning unsaved event-owner edits.
 - Motion is restrained, honors reduced motion, and never delays check-in feedback.
 
 ## Responsive and Accessibility Behavior
@@ -131,8 +131,8 @@ Vite development proxies `/api` and `/health` to Express. Production Express ser
 ### End-to-end
 
 - Register/login, discover/filter, reserve, retrieve QR, reload offline ticket.
-- Organizer creates event/ticket types, publishes, and checks in a ticket through manual payload entry.
-- Admin finds a user and promotes them to organizer.
+- A signed-in user creates event/ticket types, publishes, and checks in a ticket through manual payload entry; an admin can do the same for any event.
+- Admin finds a user and changes the account type between User and Admin.
 - Desktop and mobile route smoke tests, direct browser-route refresh, and production same-origin API calls.
 
 ## Delivery Boundaries

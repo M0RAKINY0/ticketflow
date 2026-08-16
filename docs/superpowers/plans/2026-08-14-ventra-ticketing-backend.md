@@ -1,5 +1,7 @@
 # Ventra Ticketing Backend Implementation Plan
 
+> **Historical plan:** this plan predates the two-account ownership model. The current role, authorization, migration, and frontend requirements are defined in [`docs/two-account-ownership-plan.md`](../../two-account-ownership-plan.md) and the repository README.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the README-defined backend that lets organizers publish capacity-limited events, attendees reserve QR-coded tickets, and organizers perform one-time check-ins.

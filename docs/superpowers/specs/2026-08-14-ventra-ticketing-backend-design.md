@@ -2,15 +2,15 @@
 
 ## Purpose
 
-Ventra is a backend-only event ticketing system. Organizers create and publish events with ticket categories, attendees reserve available tickets and receive QR-coded passes, and organizers validate those passes at venue check-in. The implementation must match the repository README and does not include a browser frontend or payment processing.
+Ventra is an event ticketing system. Authenticated users create and publish events with ticket categories, attendees reserve available tickets and receive QR-coded passes, and event owners validate those passes at venue check-in. The implementation must match the repository README and does not include payment processing.
 
 ## Product Scope
 
 Ventra must provide:
 
 - JWT authentication with rotated, revocable refresh tokens.
-- Role-based access control for `USER`, `ORGANIZER`, and `ADMIN` accounts.
-- Organizer-owned event and ticket-type management.
+- Role-based access control for `USER` and `ADMIN` accounts.
+- Event-owner and administrator event and ticket-type management.
 - Public discovery of published events.
 - Transactional ticket reservations that cannot oversell inventory.
 - Unique QR-coded digital tickets generated asynchronously.
@@ -35,7 +35,7 @@ The modules are:
 
 - `auth`: registration, login, access-token issuance, refresh-token rotation, and logout.
 - `users`: authenticated profile access and administrative role management.
-- `events`: organizer-owned event creation, editing, publication, cancellation, and public discovery.
+- `events`: user-owned event creation, editing, publication, cancellation, and public discovery.
 - `ticket-types`: event ticket categories, capacity, labels, and availability.
 - `reservations`: idempotent transactional reservation and cancellation rules.
 - `tickets`: ticket issuance state and QR pass retrieval.
@@ -50,7 +50,7 @@ Stores identity, password hash, contact fields, role, and timestamps. New public
 
 ### Event
 
-Stores title, description, start and end times, venue, status, organizer ownership, and timestamps. Event status is `DRAFT`, `PUBLISHED`, or `CANCELLED`. Only published events are publicly discoverable.
+Stores title, description, start and end times, venue, status, event-owner ownership, and timestamps. Event status is `DRAFT`, `PUBLISHED`, or `CANCELLED`. Only published events are publicly discoverable.
 
 ### TicketType
 
@@ -66,7 +66,7 @@ Stores the unique opaque public identifier, reservation relationship, issuance s
 
 ### CheckIn
 
-Stores the ticket, event, organizer who performed validation, and check-in time. A unique ticket constraint ensures that a ticket can be admitted only once.
+Stores the ticket, event, event owner or admin who performed validation, and check-in time. A unique ticket constraint ensures that a ticket can be admitted only once.
 
 ### RefreshToken
 
@@ -76,7 +76,7 @@ Stores a hash of each refresh token, its owner, expiry, revocation state, replac
 
 - Public clients can register, log in, refresh sessions, and list or view published events.
 - Users can view their profile, reserve tickets, list their reservations and tickets, and retrieve their QR passes.
-- Organizers can manage only their own events, ticket types, attendee summaries, and check-ins.
+- Authenticated users can manage only events they own, including ticket types, attendee summaries, and check-ins.
 - Admins can manage all users and events.
 - Role and ownership checks live in services and are reinforced at route boundaries.
 

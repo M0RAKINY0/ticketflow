@@ -145,7 +145,7 @@ describe('authentication and role authorization', () => {
     expect(refreshed.status).toBe(401);
   });
 
-  it('allows only admins to assign USER or ORGANIZER roles', async () => {
+  it('allows only admins to assign USER or ADMIN roles', async () => {
     const target = await prisma.user.create({
       data: {
         email: `${AUTH_TEST_EMAIL_PREFIX}target@example.com`,
@@ -176,19 +176,19 @@ describe('authentication and role authorization', () => {
     const forbidden = await request(createApp())
       .patch(`/api/v1/users/${target.id}/role`)
       .set('Authorization', `Bearer ${userRegistration.body.data.accessToken}`)
-      .send({ role: 'ORGANIZER' });
+      .send({ role: 'ADMIN' });
     const changed = await request(createApp())
       .patch(`/api/v1/users/${target.id}/role`)
       .set('Authorization', `Bearer ${adminLogin.body.data.accessToken}`)
-      .send({ role: 'ORGANIZER' });
+      .send({ role: 'ADMIN' });
     const adminRole = await request(createApp())
       .patch(`/api/v1/users/${target.id}/role`)
       .set('Authorization', `Bearer ${adminLogin.body.data.accessToken}`)
-      .send({ role: 'ADMIN' });
+      .send({ role: 'ORGANIZER' });
 
     expect(forbidden.status).toBe(403);
     expect(changed.status).toBe(200);
-    expect(changed.body.data.user.role).toBe('ORGANIZER');
+    expect(changed.body.data.user.role).toBe('ADMIN');
     expect(JSON.stringify(changed.body)).not.toContain('passwordHash');
     expect(adminRole.status).toBe(400);
   });

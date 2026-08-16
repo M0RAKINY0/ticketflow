@@ -12,9 +12,8 @@ The frontend is a React and Vite application in `web/` inside the existing Ventr
 
 ## Users
 
-- Attendees discover events, reserve a ticket, retrieve it online or offline, and present its QR code.
-- Organizers create events and ticket types, monitor reservations, and scan tickets at entry.
-- Administrators find users and promote them to organizer status.
+- Users discover events, reserve tickets, create events, manage their own ticket types, retrieve tickets online or offline, and scan tickets for events they own.
+- Administrators manage every user and event, including event-scoped check-in.
 
 ## Product Purpose
 
@@ -22,11 +21,11 @@ Ventra provides one responsive event experience from discovery through exactly-o
 
 ## Positioning
 
-Ventra joins a public discovery-first event marketplace to simple organizer operations and secure one-time QR check-in within one role-aware account.
+Ventra joins a public discovery-first event marketplace to simple owner operations and secure one-time QR check-in within two account types: User and Admin.
 
 ## Operating Context
 
-Attendees commonly browse on mobile and may need to present a previously viewed ticket without connectivity. Organizers set up events on desktop and perform check-in primarily on phones under time pressure and variable lighting.
+Attendees commonly browse on mobile and may need to present a previously viewed ticket without connectivity. Event owners set up events on desktop and perform check-in primarily on phones under time pressure and variable lighting.
 
 ## Capabilities and Constraints
 
@@ -35,13 +34,14 @@ Attendees commonly browse on mobile and may need to present a previously viewed 
 - QR tickets use static signed opaque payloads, camera scanning, and manual-entry fallback.
 - Ventra is global from v1. Each event records an ISO 4217 currency, IANA timezone, city, and ISO 3166-1 alpha-2 country code.
 - Payments are not included; ticket price is informational.
-- The first frontend release includes attendee, organizer, and small administrator areas.
+- Every authenticated User can create events. The creating user is the event owner; ownership or Admin authority controls management.
+- Existing Organizer accounts are converted to User accounts during migration without changing event ownership.
 
 ## Brand Commitments
 
 - The product name is Ventra.
 - The interface uses familiar event-marketplace conventions at an Eventbrite and Luma quality bar.
-- Discovery is the public front door; organizer and administrator tools remain clear authenticated destinations.
+- Discovery is the public front door; event-owner and administrator tools remain clear authenticated destinations.
 - No existing logo or visual assets are authoritative. The frontend establishes the first Ventra identity.
 
 ## Evidence on Hand
@@ -52,9 +52,9 @@ The repository contains the working Express/Prisma ticketing API and integration
 
 - Discovery is the front door.
 - Tickets must feel trustworthy and remain easy to retrieve.
-- Organizer tools favor clarity and speed over dashboard density.
+- Event-owner tools favor clarity and speed over dashboard density.
 - Check-in results must be unmistakable under venue pressure.
-- Role changes reveal capability without making users learn separate products.
+- Ownership reveals event capability without making users learn separate products.
 
 ## Accessibility & Inclusion
 

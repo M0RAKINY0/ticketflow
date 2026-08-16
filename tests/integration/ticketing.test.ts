@@ -15,7 +15,7 @@ afterEach(async () => {
   });
 });
 
-async function createUser(label: string, role: 'USER' | 'ORGANIZER' | 'ADMIN') {
+async function createUser(label: string, role: 'USER' | 'ADMIN') {
   const user = await prisma.user.create({
     data: {
       email: `${TEST_EMAIL_PREFIX}${label}@example.com`,
@@ -90,8 +90,8 @@ async function reserve(
 
 describe('event and ticket type management', () => {
   it('keeps drafts private, enforces ownership, and exposes a published event publicly', async () => {
-    const owner = await createUser('event-owner', 'ORGANIZER');
-    const otherOrganizer = await createUser('other-organizer', 'ORGANIZER');
+    const owner = await createUser('event-owner', 'USER');
+    const otherUser = await createUser('other-user', 'USER');
     const created = await createEvent(owner.token);
     const eventId = created.body.data.event.id as string;
 
@@ -104,7 +104,7 @@ describe('event and ticket type management', () => {
       .set(authorization(owner.token));
     const forbiddenUpdate = await request(createApp())
       .patch(`/api/v1/events/${eventId}`)
-      .set(authorization(otherOrganizer.token))
+      .set(authorization(otherUser.token))
       .send({ title: 'Stolen title' });
     const emptyPublish = await publishEvent(owner.token, eventId);
     const ticketType = await createTicketType(owner.token, eventId);
@@ -154,9 +154,28 @@ describe('event and ticket type management', () => {
     expect(publicPublishedDetail.body.data.event.id).toBe(eventId);
   });
 
+  it('lets an admin manage an event owned by another user', async () => {
+    const owner = await createUser('admin-managed-owner', 'USER');
+    const admin = await createUser('admin-managed-admin', 'ADMIN');
+    const created = await createEvent(owner.token, 'Admin Managed Event');
+    const eventId = created.body.data.event.id as string;
+
+    const updated = await request(createApp())
+      .patch(`/api/v1/events/${eventId}`)
+      .set(authorization(admin.token))
+      .send({ title: 'Admin Updated Event' });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.event).toMatchObject({
+      id: eventId,
+      title: 'Admin Updated Event',
+      organizerId: owner.user.id,
+    });
+  });
+
   it('creates, updates, lists, and deletes ticket types only while an owned event is a draft', async () => {
-    const owner = await createUser('ticket-type-owner', 'ORGANIZER');
-    const otherOrganizer = await createUser('ticket-type-other', 'ORGANIZER');
+    const owner = await createUser('ticket-type-owner', 'USER');
+    const otherUser = await createUser('ticket-type-other', 'USER');
     const createdEvent = await createEvent(owner.token, 'Ticket Types');
     const eventId = createdEvent.body.data.event.id as string;
     const createdType = await createTicketType(owner.token, eventId);
@@ -167,7 +186,7 @@ describe('event and ticket type management', () => {
       .set(authorization(owner.token));
     const forbidden = await request(createApp())
       .patch(`/api/v1/events/${eventId}/ticket-types/${ticketTypeId}`)
-      .set(authorization(otherOrganizer.token))
+      .set(authorization(otherUser.token))
       .send({ capacity: 5 });
     const updated = await request(createApp())
       .patch(`/api/v1/events/${eventId}/ticket-types/${ticketTypeId}`)
@@ -213,7 +232,7 @@ describe('event and ticket type management', () => {
   });
 
   it('cancels an owned event and removes it from public discovery', async () => {
-    const owner = await createUser('cancel-owner', 'ORGANIZER');
+    const owner = await createUser('cancel-owner', 'USER');
     const created = await createEvent(owner.token, 'Cancelled Show');
     const eventId = created.body.data.event.id as string;
     await createTicketType(owner.token, eventId);
@@ -232,7 +251,7 @@ describe('event and ticket type management', () => {
   });
 
   it('rejects invalid global event data', async () => {
-    const owner = await createUser('invalid-global-owner', 'ORGANIZER');
+    const owner = await createUser('invalid-global-owner', 'USER');
     const invalidCases = [
       { coverImageUrl: 'http://images.example.com/event.jpg' },
       { timezone: 'Mars/Olympus_Mons' },
@@ -267,22 +286,22 @@ describe('event and ticket type management', () => {
     }
   });
 
-  it('filters and paginates published upcoming events while retaining organizer draft visibility', async () => {
-    const lagosOrganizer = await createUser(
+  it('filters and paginates published upcoming events while retaining owner draft visibility', async () => {
+    const lagosOwner = await createUser(
       'discovery-lagos-owner',
-      'ORGANIZER',
+      'USER',
     );
-    const londonOrganizer = await createUser(
+    const londonOwner = await createUser(
       'discovery-london-owner',
-      'ORGANIZER',
+      'USER',
     );
     const lagosEvent = await createEvent(
-      lagosOrganizer.token,
+      lagosOwner.token,
       'Lagos Jazz Night',
     );
     const londonEvent = await request(createApp())
       .post('/api/v1/events')
-      .set(authorization(londonOrganizer.token))
+      .set(authorization(londonOwner.token))
       .send({
         title: 'London Product Forum',
         description: 'A business gathering.',
@@ -296,15 +315,15 @@ describe('event and ticket type management', () => {
         timezone: 'Europe/London',
       });
 
-    await createTicketType(lagosOrganizer.token, lagosEvent.body.data.event.id);
+    await createTicketType(lagosOwner.token, lagosEvent.body.data.event.id);
     await createTicketType(
-      londonOrganizer.token,
+      londonOwner.token,
       londonEvent.body.data.event.id,
     );
-    await publishEvent(lagosOrganizer.token, lagosEvent.body.data.event.id);
-    await publishEvent(londonOrganizer.token, londonEvent.body.data.event.id);
+    await publishEvent(lagosOwner.token, lagosEvent.body.data.event.id);
+    await publishEvent(londonOwner.token, londonEvent.body.data.event.id);
     const draft = await createEvent(
-      lagosOrganizer.token,
+      lagosOwner.token,
       'Lagos Private Rehearsal',
     );
 
@@ -319,10 +338,10 @@ describe('event and ticket type management', () => {
         page: 1,
         pageSize: 1,
       });
-    const organizerList = await request(createApp())
+    const ownerList = await request(createApp())
       .get('/api/v1/events')
       .query({ page: 1, pageSize: 10 })
-      .set(authorization(lagosOrganizer.token));
+      .set(authorization(lagosOwner.token));
     const invalidPageSize = await request(createApp())
       .get('/api/v1/events')
       .query({ pageSize: 101 });
@@ -340,7 +359,7 @@ describe('event and ticket type management', () => {
         countryCode: 'NG',
       }),
     ]);
-    expect(organizerList.body.data.items).toEqual(
+    expect(ownerList.body.data.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: lagosEvent.body.data.event.id,
@@ -352,7 +371,7 @@ describe('event and ticket type management', () => {
         }),
       ]),
     );
-    expect(organizerList.body.data.items).not.toEqual(
+    expect(ownerList.body.data.items).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: londonEvent.body.data.event.id }),
       ]),
@@ -363,7 +382,7 @@ describe('event and ticket type management', () => {
 
 describe('reservations and attendee tickets', () => {
   it('creates one durable QR ticket and replays an idempotent reservation without consuming inventory twice', async () => {
-    const owner = await createUser('reservation-owner', 'ORGANIZER');
+    const owner = await createUser('reservation-owner', 'USER');
     const attendee = await createUser('reservation-attendee', 'USER');
     const createdEvent = await createEvent(owner.token, 'Idempotent Show');
     const eventId = createdEvent.body.data.event.id as string;
@@ -430,7 +449,7 @@ describe('reservations and attendee tickets', () => {
   });
 
   it('never exceeds capacity under concurrent reservations', async () => {
-    const owner = await createUser('capacity-owner', 'ORGANIZER');
+    const owner = await createUser('capacity-owner', 'USER');
     const firstAttendee = await createUser('capacity-first', 'USER');
     const secondAttendee = await createUser('capacity-second', 'USER');
     const createdEvent = await createEvent(owner.token, 'Capacity Show');
@@ -459,7 +478,7 @@ describe('reservations and attendee tickets', () => {
   });
 
   it('rejects an idempotency key reused for a different reservation request', async () => {
-    const owner = await createUser('key-owner', 'ORGANIZER');
+    const owner = await createUser('key-owner', 'USER');
     const attendee = await createUser('key-attendee', 'USER');
     const createdEvent = await createEvent(owner.token, 'Key Show');
     const eventId = createdEvent.body.data.event.id as string;
@@ -491,8 +510,8 @@ describe('reservations and attendee tickets', () => {
 
 describe('ticket check-in', () => {
   it('allows the event owner or an admin to list check-ins and consumes a ticket exactly once', async () => {
-    const owner = await createUser('checkin-owner', 'ORGANIZER');
-    const otherOrganizer = await createUser('checkin-other', 'ORGANIZER');
+    const owner = await createUser('checkin-owner', 'USER');
+    const otherUser = await createUser('checkin-other', 'USER');
     const attendee = await createUser('checkin-attendee', 'USER');
     const admin = await createUser('checkin-admin', 'ADMIN');
     const createdEvent = await createEvent(owner.token, 'Check-in Show');
@@ -513,7 +532,7 @@ describe('ticket check-in', () => {
 
     const forbidden = await request(createApp())
       .post(`/api/v1/events/${eventId}/check-ins`)
-      .set(authorization(otherOrganizer.token))
+      .set(authorization(otherUser.token))
       .send({ qrPayload });
     const attempts = await Promise.all([
       request(createApp())

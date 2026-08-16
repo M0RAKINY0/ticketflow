@@ -152,7 +152,7 @@ export async function revokeRefreshToken(rawToken: string): Promise<void> {
 }
 
 function isRole(value: unknown): value is Role {
-  return value === 'USER' || value === 'ORGANIZER' || value === 'ADMIN';
+  return value === 'USER' || value === 'ADMIN';
 }
 
 function isFiniteNumeric(value: unknown): value is number {
