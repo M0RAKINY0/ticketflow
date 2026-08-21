@@ -34,6 +34,7 @@ Events should feel like a living city guide: clear enough to scan quickly, warm 
 - Buttons and inputs use `6px` to `7px` radii.
 - Page sections are full-width bands with constrained inner shells. Cards are reserved for repeated event items, dialogs, and the drawer.
 - Media uses stable aspect ratios so loading states and event switching do not resize the layout.
+- Wheel pickers use a fixed compact height and centered selection band so changing values cannot resize the create form.
 
 ## Components
 
@@ -59,15 +60,27 @@ An adapter over Aceternity `AnimatedTestimonials`. It maps `Event` data to the e
 
 ### `ExpandableEventCard`
 
-An event version of the Aceternity standard expandable card pattern. It uses the shared outside-click hook and a reusable detail dialog with Escape handling, focusable close controls, and mobile-safe sizing.
+An event version of the Aceternity standard expandable card pattern. The full card surface is a keyboard-accessible detail trigger, while the actual content lives in one shared dialog with outside-click, Escape, focusable close controls, a soft blurred backdrop, and mobile-safe sizing.
 
 ### `HowItWorksCarousel`
 
-Uses the Aceternity Apple cards carousel with three local step cards. The track is horizontally scrollable, and its controls remeasure after responsive layout and image loading.
+Uses the Aceternity Apple cards carousel track with three static local step cards. The track is horizontally scrollable and its controls remeasure after responsive layout and image loading; cards never open a second view.
+
+### `LoginPage`
+
+Provides the `/login` destination for reservation intent until authentication is connected. It keeps the return path obvious and reports that login is demo-only when the placeholder form is submitted.
 
 ### `CreateEventDrawer`
 
-Uses shadcn Sheet primitives and the Aceternity file-upload foundation. The drawer owns draft state, field validation, preview URL lifecycle, replacement, removal, and publish handoff.
+Uses shadcn Sheet primitives and the shared `CreateEventForm`. The form owns draft state, field validation, preview URL lifecycle, replacement, removal, and publish handoff in both the inline create surface and the drawer.
+
+### `WheelColumn`
+
+Provides the compact iOS-inspired vertical picker primitive. Its selected row sits inside a quiet center band, adjacent values fade into the background, and the column supports snap scrolling plus Arrow, Home, and End keyboard movement.
+
+### `ScrollableDatePicker` and `ScrollableTimePicker`
+
+Compose three linked wheel columns for dates (`weekday`, `day`, `month`) and times (`hour`, `minute`, `AM/PM`). They format directly into the existing event draft strings without adding manual text inputs or changing the publish contract.
 
 ## Motion
 
@@ -76,6 +89,7 @@ Uses shadcn Sheet primitives and the Aceternity file-upload foundation. The draw
 - Drawer and detail dialogs use short, reversible entrances.
 - Autoplay pauses on hover and focus.
 - `prefers-reduced-motion: reduce` removes autoplay and compresses animated transitions.
+- Wheel movement uses native scroll snapping and compact transitions so it remains usable with reduced motion enabled.
 
 ## Accessibility
 
@@ -83,10 +97,12 @@ Uses shadcn Sheet primitives and the Aceternity file-upload foundation. The draw
 - Controls have visible focus rings, accessible labels, and familiar icons.
 - Hero arrows and indicators support keyboard navigation.
 - Detail dialogs support Escape, outside click, and a focusable close button.
+- Browse event cards open from their full surface and expose a keyboard activation path.
+- Reserve event routes to the login destination without pretending to complete authentication.
 - The create form keeps validation inline and the upload surface supports keyboard activation through the dropzone control.
+- Date and time wheels expose listbox options with selected state and keyboard movement; no manual date or time text fields are required.
 - Mobile layouts keep the page and dialog within the viewport width; horizontal overflow is limited to the intentionally scrollable Apple card track.
 
 ## Imagery
 
 The five local PNGs in `public/events` are deterministic demo assets generated for this slice. They are intentionally free of embedded text and logos so they can be replaced with real event photography without changing component contracts.
-

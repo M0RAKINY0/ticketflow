@@ -23,6 +23,7 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
         title: step.title,
       }}
       index={index}
+      interactive={false}
       key={step.id}
       layout
     />
@@ -30,4 +31,3 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
 
   return <Carousel items={items} />
 }
-

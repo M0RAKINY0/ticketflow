@@ -1,7 +1,5 @@
-import { useCallback, useState } from "react"
 import { EventActions } from "@/components/events/EventActions"
 import { EventBadge } from "@/components/events/EventBadge"
-import { EventDetailDialog } from "@/components/events/EventDetailDialog"
 import { EventMedia } from "@/components/events/EventMedia"
 import { EventMeta } from "@/components/events/EventMeta"
 import { eventBadgeTone } from "@/components/events/event-badge-tone"
@@ -9,21 +7,28 @@ import type { Event } from "@/types/events"
 
 type ExpandableEventCardProps = {
   event: Event
-  onOpen?: (event: Event) => void
+  onOpen: (event: Event) => void
 }
 
 export function ExpandableEventCard({ event, onOpen }: ExpandableEventCardProps) {
-  const [isOpen, setIsOpen] = useState(false)
-
-  const close = useCallback(() => setIsOpen(false), [])
-  const open = useCallback(() => {
-    setIsOpen(true)
-    onOpen?.(event)
-  }, [event, onOpen])
+  const open = () => onOpen(event)
+  const handleKeyDown = (keyboardEvent: React.KeyboardEvent<HTMLElement>) => {
+    if (keyboardEvent.target !== keyboardEvent.currentTarget) return
+    if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
+      keyboardEvent.preventDefault()
+      open()
+    }
+  }
 
   return (
-    <>
-      <article className="event-card">
+    <article
+      aria-label={`Open details for ${event.title}`}
+      className="event-card"
+      onClick={open}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+    >
         <div className="event-card-media">
           <EventMedia alt={`${event.title} event`} src={event.imageSrc} />
           <EventBadge className="event-card-badge" tone={eventBadgeTone(event.category)}>
@@ -38,9 +43,6 @@ export function ExpandableEventCard({ event, onOpen }: ExpandableEventCardProps)
             <EventActions event={event} onOpen={open} />
           </div>
         </div>
-      </article>
-
-      <EventDetailDialog event={isOpen ? event : null} onClose={close} />
-    </>
+    </article>
   )
 }

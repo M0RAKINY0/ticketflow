@@ -11,9 +11,10 @@ import type { Event } from "@/types/events"
 type EventDetailDialogProps = {
   event: Event | null
   onClose: () => void
+  onReserve: (event: Event) => void
 }
 
-export function EventDetailDialog({ event, onClose }: EventDetailDialogProps) {
+export function EventDetailDialog({ event, onClose, onReserve }: EventDetailDialogProps) {
   const modalRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
@@ -71,11 +72,21 @@ export function EventDetailDialog({ event, onClose }: EventDetailDialogProps) {
               <h3 id={titleId}>{event.title}</h3>
               <p className="event-detail-description">{event.description}</p>
               <EventMeta className="event-detail-meta" event={event} includePrice />
-              <div className="event-card-footer">
+              <div className="event-detail-footer">
                 <span className="event-price">Ready when you are.</span>
-                <button className="event-action-button" onClick={close} type="button">
-                  Done
-                </button>
+                <div className="event-detail-actions">
+                  <button className="event-action-button" onClick={close} type="button">
+                    Done
+                  </button>
+                  <button
+                    className="event-action-button"
+                    data-variant="primary"
+                    onClick={() => onReserve(event)}
+                    type="button"
+                  >
+                    Reserve event
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

@@ -1,11 +1,13 @@
-import { ArrowDown, ArrowUpRight, Plus } from "lucide-react"
-import { useState } from "react"
+import { ArrowDown, Plus } from "lucide-react"
+import { useEffect, useState } from "react"
 import "./App.css"
 import { AnimatedEventHero } from "@/components/events/AnimatedEventHero"
 import { CreateEventDrawer } from "@/components/events/CreateEventDrawer"
+import { CreateEventForm } from "@/components/events/CreateEventForm"
 import { EventDetailDialog } from "@/components/events/EventDetailDialog"
 import { ExpandableEventCard } from "@/components/events/ExpandableEventCard"
 import { HowItWorksCarousel } from "@/components/events/HowItWorksCarousel"
+import { LoginPage } from "@/components/events/LoginPage"
 import { howItWorksSteps, demoEvents } from "@/data/events"
 import { buildEventFromDraft } from "@/lib/event-draft"
 import type { Event, EventDraft } from "@/types/events"
@@ -15,11 +17,31 @@ function App() {
   const [activeEventId, setActiveEventId] = useState(demoEvents[0].id)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [pathname, setPathname] = useState(() => window.location.pathname)
+
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname)
+    window.addEventListener("popstate", handlePopState)
+
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  const navigateTo = (nextPath: string) => {
+    window.history.pushState({}, "", nextPath)
+    setPathname(nextPath)
+    setSelectedEvent(null)
+  }
 
   const handleCreate = (draft: EventDraft) => {
     const event = buildEventFromDraft(draft, `event-${crypto.randomUUID()}`)
     setEvents((previousEvents) => [...previousEvents, event])
     setActiveEventId(event.id)
+  }
+
+  const handleReserve = () => navigateTo("/login")
+
+  if (pathname === "/login") {
+    return <LoginPage onBack={() => navigateTo("/")} />
   }
 
   return (
@@ -104,7 +126,7 @@ function App() {
             </div>
             <div className="event-grid">
               {events.map((event) => (
-                <ExpandableEventCard event={event} key={event.id} />
+                <ExpandableEventCard event={event} key={event.id} onOpen={setSelectedEvent} />
               ))}
             </div>
           </div>
@@ -128,7 +150,7 @@ function App() {
               <span>
                 <strong>Swipe or use the arrows</strong> to move through the guide.
               </span>
-              <span>Tap a card to see the step in full.</span>
+              <span>Each step stays visible as you browse.</span>
             </div>
           </div>
         </section>
@@ -141,29 +163,20 @@ function App() {
               <p>
                 Add the image, name the place, and make it easy for the right people to find you. Your new event appears in this guide immediately.
               </p>
-              <div className="hero-actions">
-                <button className="primary-button" onClick={() => setIsCreateOpen(true)} type="button">
-                  Create an event <ArrowUpRight aria-hidden="true" size={16} />
-                </button>
-              </div>
             </div>
-            <div aria-label="Events overview" className="create-stats">
-              <div className="stat-tile">
-                <strong>{events.length}</strong>
-                <span>plans in this local guide</span>
+            <div aria-label="Create an event" className="create-interface">
+              <div className="create-interface-header">
+                <p className="create-interface-kicker">New event</p>
+                <h3 className="create-interface-title">Make the next plan easy to find.</h3>
+                <p className="create-interface-copy">
+                  Choose a date, add the useful details, and give your event an image people can remember.
+                </p>
               </div>
-              <div className="stat-tile">
-                <strong>01</strong>
-                <span>clear next step from every card</span>
-              </div>
-              <div className="stat-tile">
-                <strong>05MB</strong>
-                <span>image size for a quick publish</span>
-              </div>
-              <div className="stat-tile">
-                <strong>∞</strong>
-                <span>reasons to leave the house</span>
-              </div>
+              <CreateEventForm
+                className="event-form-inline"
+                onCreate={handleCreate}
+                submitLabel="Publish event"
+              />
             </div>
           </div>
         </section>
@@ -194,7 +207,11 @@ function App() {
         onOpenChange={setIsCreateOpen}
         open={isCreateOpen}
       />
-      <EventDetailDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+      <EventDetailDialog
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onReserve={handleReserve}
+      />
     </div>
   )
 }
