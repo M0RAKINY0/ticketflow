@@ -1,6 +1,6 @@
 import { useEffect, useRef, useId } from "react"
 
-export const WHEEL_ROW_HEIGHT = 40
+export const WHEEL_ROW_HEIGHT = 32
 
 export type WheelOption = {
   value: string

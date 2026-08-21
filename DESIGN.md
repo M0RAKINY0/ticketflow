@@ -34,6 +34,7 @@ Events should feel like a living city guide: clear enough to scan quickly, warm 
 - Buttons and inputs use `6px` to `7px` radii.
 - Page sections are full-width bands with constrained inner shells. Cards are reserved for repeated event items, dialogs, and the drawer.
 - Media uses stable aspect ratios so loading states and event switching do not resize the layout.
+- The featured-event panel gives the rotated media stack a generous white frame and clips accidental bleed at the rounded boundary.
 - Wheel pickers use a fixed compact height and centered selection band so changing values cannot resize the create form.
 
 ## Components
@@ -74,13 +75,19 @@ Provides the `/login` destination for reservation intent until authentication is
 
 Uses shadcn Sheet primitives and the shared `CreateEventForm`. The form owns draft state, field validation, preview URL lifecycle, replacement, removal, and publish handoff in both the inline create surface and the drawer.
 
+### `CreateEventForm`
+
+Keeps the inline and drawer versions identical. Category and price share a
+compact basics row, while date and time share a timing row on wider surfaces;
+both groups collapse to one column on mobile and narrow drawer widths.
+
 ### `WheelColumn`
 
 Provides the compact iOS-inspired vertical picker primitive. Its selected row sits inside a quiet center band, adjacent values fade into the background, and the column supports snap scrolling plus Arrow, Home, and End keyboard movement.
 
 ### `ScrollableDatePicker` and `ScrollableTimePicker`
 
-Compose three linked wheel columns for dates (`weekday`, `day`, `month`) and times (`hour`, `minute`, `AM/PM`). They format directly into the existing event draft strings without adding manual text inputs or changing the publish contract.
+Compose three linked wheel columns for dates (`weekday`, `day`, `month`) and times (`hour`, `minute`, `AM/PM`). The month column is deduplicated to one option per available month and maps back to the nearest valid date while preserving the selected day when possible. They format directly into the existing event draft strings without adding manual text inputs or changing the publish contract.
 
 ## Motion
 

@@ -60,7 +60,7 @@ export function AnimatedEventHero({
           />
         ))}
       </div>
-      <div className="hero-utility">
+      <div className="hero-utility hero-utility-primary">
         <span>
           <strong>{activeEvent.date}</strong> · {activeEvent.time}
         </span>
@@ -72,7 +72,7 @@ export function AnimatedEventHero({
           View details <ArrowUpRight aria-hidden="true" size={14} />
         </button>
       </div>
-      <div className="hero-utility">
+      <div className="hero-utility hero-utility-secondary">
         <span className="hero-utility-status">
           {activeEvent.venue}, {activeEvent.city}
         </span>
@@ -83,4 +83,3 @@ export function AnimatedEventHero({
     </div>
   )
 }
-

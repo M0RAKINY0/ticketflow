@@ -303,24 +303,13 @@
 
 .event-hero-panel {
   position: relative;
-  min-height: 512px;
-  padding: 30px;
+  min-height: 520px;
+  padding: 34px 36px 28px;
+  overflow: hidden;
   border: 1px solid rgba(219, 227, 238, 0.94);
   border-radius: 14px;
   background: var(--card);
   box-shadow: var(--shadow-soft);
-}
-
-.event-hero-panel::before {
-  position: absolute;
-  top: -10px;
-  right: 28px;
-  width: 84px;
-  height: 20px;
-  content: "";
-  border-top: 3px solid var(--accent);
-  border-radius: 50%;
-  transform: rotate(-4deg);
 }
 
 .event-animated-testimonials {
@@ -330,16 +319,19 @@
 }
 
 .event-animated-testimonials > div {
+  align-items: start;
   grid-template-columns: minmax(0, 1fr) minmax(210px, 0.84fr) !important;
-  gap: 28px !important;
+  gap: 30px !important;
 }
 
 .event-animated-testimonials > div > div:first-child {
   min-width: 0;
+  padding: 12px 14px 15px;
 }
 
 .event-animated-testimonials .event-testimonial-image-wrap {
   height: 370px !important;
+  overflow: visible;
 }
 
 .event-animated-testimonials .event-testimonial-image {
@@ -347,33 +339,38 @@
 }
 
 .event-animated-testimonials .event-testimonial-copy {
+  align-self: stretch;
+  justify-content: flex-start !important;
   min-width: 0;
-  padding: 7px 0 0 !important;
+  padding: 8px 0 4px !important;
 }
 
 .event-animated-testimonials .event-testimonial-title {
+  max-width: 17ch;
   color: var(--foreground) !important;
   font-family: var(--font-display);
-  font-size: clamp(1.6rem, 3vw, 2.3rem) !important;
-  line-height: 1.03;
+  font-size: clamp(1.7rem, 2.8vw, 2.45rem) !important;
+  line-height: 1.04;
   letter-spacing: -0.03em;
 }
 
 .event-animated-testimonials .event-testimonial-meta {
   display: block;
-  margin-top: 10px;
+  margin-top: 12px;
   color: var(--primary) !important;
   font-size: 0.72rem !important;
   font-weight: 800;
   letter-spacing: 0.09em;
+  line-height: 1.35;
   text-transform: uppercase;
 }
 
 .event-animated-testimonials .event-testimonial-description {
-  margin-top: 22px !important;
+  max-width: 34ch;
+  margin-top: 24px !important;
   color: var(--muted-foreground) !important;
-  font-size: 0.9rem !important;
-  line-height: 1.65;
+  font-size: 0.88rem !important;
+  line-height: 1.62;
 }
 
 .event-animated-testimonials .event-testimonial-description span {
@@ -384,7 +381,8 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding-top: 18px !important;
+  margin-top: 26px;
+  padding-top: 0 !important;
 }
 
 .hero-arrow {
@@ -408,23 +406,24 @@
 
 .hero-indicators {
   display: flex;
+  justify-content: flex-end;
   gap: 7px;
-  margin-left: auto;
+  margin: 3px 2px 0 auto;
 }
 
 .hero-dot {
-  width: 24px;
+  width: 32px;
   height: 5px;
   padding: 0;
   border: 0;
   border-radius: 99px;
   background: #d7dfeb;
-  transition: width 180ms ease, background-color 180ms ease;
+  transition: transform 180ms ease, background-color 180ms ease;
 }
 
 .hero-dot[data-active="true"] {
-  width: 40px;
   background: var(--accent);
+  transform: scaleX(1.25);
 }
 
 .hero-utility {
@@ -432,11 +431,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 18px;
-  padding-top: 15px;
+  min-height: 52px;
+  margin-top: 14px;
+  padding: 14px 2px 0;
   border-top: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
+}
+
+.hero-utility-primary > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hero-utility-secondary {
+  margin-top: 0;
 }
 
 .hero-utility strong {
@@ -907,34 +916,34 @@
 
 .create-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
-  gap: 40px;
-  max-width: 1040px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+  gap: 28px;
+  max-width: 920px;
   align-items: start;
 }
 
 .create-copy {
-  max-width: 470px;
-  padding-top: 14px;
+  max-width: 410px;
+  padding-top: 8px;
 }
 
 .create-copy .section-title {
-  font-size: clamp(2.2rem, 4vw, 3.8rem);
+  font-size: clamp(2rem, 3.5vw, 3.25rem);
 }
 
 .create-copy p:not(.section-kicker) {
-  max-width: 500px;
-  margin: 20px 0 0;
+  max-width: 420px;
+  margin: 16px 0 0;
   color: var(--muted-foreground);
-  font-size: 0.96rem;
-  line-height: 1.7;
+  font-size: 0.88rem;
+  line-height: 1.62;
 }
 
 .create-interface {
   min-width: 0;
-  width: min(100%, 480px);
+  width: min(100%, 430px);
   justify-self: end;
-  padding: 20px;
+  padding: 16px;
   border: 1px solid rgba(39, 88, 242, 0.18);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.8);
@@ -942,7 +951,7 @@
 }
 
 .create-interface-header {
-  margin-bottom: 20px;
+  margin-bottom: 15px;
 }
 
 .create-interface-kicker {
@@ -958,13 +967,13 @@
   margin: 0;
   color: var(--foreground);
   font-family: var(--font-display);
-  font-size: clamp(1.35rem, 2.6vw, 2rem);
+  font-size: clamp(1.25rem, 2.3vw, 1.75rem);
   line-height: 1.02;
   letter-spacing: -0.03em;
 }
 
 .create-interface-copy {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: var(--muted-foreground);
   font-size: 0.76rem;
   line-height: 1.55;
@@ -1140,13 +1149,13 @@
 
 .event-form {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .event-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .event-form-field {
@@ -1158,9 +1167,23 @@
   grid-column: 1 / -1;
 }
 
+.event-form-paired-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.event-form-paired-fields > .event-form-field {
+  min-width: 0;
+}
+
 .event-form-label {
   color: var(--foreground);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 800;
 }
 
@@ -1170,7 +1193,7 @@
   width: 100%;
   border-color: var(--border);
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .event-form input:focus-visible,
@@ -1196,7 +1219,7 @@
 
 .wheel-picker-frame {
   position: relative;
-  min-height: 160px;
+  min-height: 128px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1214,10 +1237,10 @@
 .wheel-picker-highlight {
   position: absolute;
   z-index: 0;
-  top: 60px;
+  top: 48px;
   right: 6px;
   left: 6px;
-  height: 40px;
+  height: 32px;
   border-radius: 8px;
   background: #e5e8ed;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(18, 32, 51, 0.04);
@@ -1225,7 +1248,7 @@
 }
 
 .wheel-scroller {
-  height: 160px;
+  height: 128px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-snap-type: y mandatory;
@@ -1239,7 +1262,7 @@
 }
 
 .wheel-spacer {
-  height: 60px;
+  height: 48px;
 }
 
 .wheel-option {
@@ -1247,13 +1270,13 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 40px;
+  height: 32px;
   padding: 0 4px;
   border: 0;
   border-radius: 7px;
   color: var(--muted-foreground);
   background: transparent;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 700;
   opacity: 0.42;
   scroll-snap-align: center;
@@ -1286,9 +1309,9 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
 }
 
 .date-picker-selection svg {
@@ -1300,9 +1323,9 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 7px 0 0;
+  margin: 4px 0 0;
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
 }
 
 .time-picker-selection svg {
@@ -1498,7 +1521,7 @@
     width: 100%;
     min-width: 0;
     min-height: 0;
-    padding: 18px;
+    padding: 24px 22px 20px;
   }
 
   .event-animated-testimonials,
@@ -1511,6 +1534,10 @@
   .event-animated-testimonials > div {
     grid-template-columns: 1fr !important;
     gap: 23px !important;
+  }
+
+  .event-animated-testimonials > div > div:first-child {
+    padding: 8px 8px 12px;
   }
 
   .event-animated-testimonials .event-testimonial-image-wrap {
@@ -1620,13 +1647,13 @@
 
   .create-layout {
     grid-template-columns: 1fr;
-    gap: 36px;
+    gap: 28px;
   }
 
   .create-interface {
     width: 100%;
     justify-self: stretch;
-    padding: 18px;
+    padding: 16px;
   }
 
   .footer-row {
@@ -1637,6 +1664,10 @@
 
 @media (max-width: 430px) {
   .event-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .event-form-paired-fields {
     grid-template-columns: 1fr;
   }
 

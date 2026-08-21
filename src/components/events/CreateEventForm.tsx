@@ -131,37 +131,41 @@ export function CreateEventForm({
             value={draft.title}
           />
         </label>
-        <label className="event-form-field">
-          <span className="event-form-label">Category</span>
-          <select
-            aria-label="Category"
-            onChange={(event) => updateDraft("category", event.target.value)}
-            value={draft.category}
-          >
-            <option>Markets</option>
-            <option>Film</option>
-            <option>Workshop</option>
-            <option>Music + Food</option>
-            <option>Walks</option>
-            <option>Other</option>
-          </select>
-        </label>
-        <label className="event-form-field">
-          <span className="event-form-label">Price label</span>
-          <Input
-            onChange={(event) => updateDraft("priceLabel", event.target.value)}
-            placeholder="Free entry"
-            value={draft.priceLabel}
-          />
-        </label>
-        <div className="event-form-field event-form-field-full">
-          <span className="event-form-label">Date</span>
-          <ScrollableDatePicker onChange={(value) => updateDraft("date", value)} value={draft.date} />
-        </div>
-        <div className="event-form-field event-form-field-full">
-          <span className="event-form-label">Time</span>
-          <ScrollableTimePicker onChange={(value) => updateDraft("time", value)} value={draft.time} />
-        </div>
+        <fieldset aria-label="Event basics" className="event-form-paired-fields event-form-field-full">
+          <label className="event-form-field">
+            <span className="event-form-label">Category</span>
+            <select
+              aria-label="Category"
+              onChange={(event) => updateDraft("category", event.target.value)}
+              value={draft.category}
+            >
+              <option>Markets</option>
+              <option>Film</option>
+              <option>Workshop</option>
+              <option>Music + Food</option>
+              <option>Walks</option>
+              <option>Other</option>
+            </select>
+          </label>
+          <label className="event-form-field">
+            <span className="event-form-label">Price label</span>
+            <Input
+              onChange={(event) => updateDraft("priceLabel", event.target.value)}
+              placeholder="Free entry"
+              value={draft.priceLabel}
+            />
+          </label>
+        </fieldset>
+        <fieldset aria-label="Event timing" className="event-form-paired-fields event-form-field-full">
+          <div className="event-form-field">
+            <span className="event-form-label">Date</span>
+            <ScrollableDatePicker onChange={(value) => updateDraft("date", value)} value={draft.date} />
+          </div>
+          <div className="event-form-field">
+            <span className="event-form-label">Time</span>
+            <ScrollableTimePicker onChange={(value) => updateDraft("time", value)} value={draft.time} />
+          </div>
+        </fieldset>
         <label className="event-form-field event-form-field-full">
           <span className="event-form-label">Venue</span>
           <Input

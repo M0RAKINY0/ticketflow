@@ -12,6 +12,7 @@ type DateOption = {
   weekday: string
   day: string
   month: string
+  monthKey: string
 }
 
 export function ScrollableDatePicker({ value, onChange }: ScrollableDatePickerProps) {
@@ -32,11 +33,15 @@ export function ScrollableDatePicker({ value, onChange }: ScrollableDatePickerPr
         weekday: new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date),
         day: new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(date),
         month: new Intl.DateTimeFormat("en-US", { month: "short" }).format(date),
+        monthKey: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
       }
     })
   }, [])
 
   const displayValue = value || options[0]?.value || ""
+  const selectedDate = options.find((option) => option.value === displayValue) ?? options[0]
+  if (!selectedDate) return null
+
   const weekdayOptions: WheelOption[] = options.map((option) => ({
     label: option.weekday,
     value: option.value,
@@ -45,10 +50,22 @@ export function ScrollableDatePicker({ value, onChange }: ScrollableDatePickerPr
     label: option.day,
     value: option.value,
   }))
-  const monthOptions: WheelOption[] = options.map((option) => ({
-    label: option.month,
-    value: option.value,
-  }))
+  const monthOptions: WheelOption[] = Array.from(
+    new Map(
+      options.map((option) => [
+        option.monthKey,
+        { label: option.month, value: option.monthKey },
+      ]),
+    ).values(),
+  )
+
+  const handleMonthChange = (monthKey: string) => {
+    const matchingDay = options.find(
+      (option) => option.monthKey === monthKey && option.day === selectedDate.day,
+    )
+    const fallback = options.find((option) => option.monthKey === monthKey)
+    onChange((matchingDay ?? fallback ?? selectedDate).value)
+  }
 
   return (
     <div
@@ -74,9 +91,9 @@ export function ScrollableDatePicker({ value, onChange }: ScrollableDatePickerPr
           />
           <WheelColumn
             label="Date month"
-            onChange={onChange}
+            onChange={handleMonthChange}
             options={monthOptions}
-            value={displayValue}
+            value={selectedDate.monthKey}
           />
         </div>
       </div>
