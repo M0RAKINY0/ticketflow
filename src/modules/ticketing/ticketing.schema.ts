@@ -1,44 +1,44 @@
-import { code as getCurrency } from 'currency-codes';
-import { isValid as isValidCountry } from 'i18n-iso-countries';
-import { z } from 'zod';
+import { code as getCurrency } from "currency-codes";
+import countries from "i18n-iso-countries";
+import { z } from "zod";
 
 const dateTime = z.iso.datetime({ offset: true });
 const money = z.coerce.number().finite().min(0).max(999_999_999.99);
 const eventCategory = z.enum([
-  'MUSIC',
-  'BUSINESS',
-  'TECHNOLOGY',
-  'ARTS_CULTURE',
-  'FOOD_DRINK',
-  'SPORTS_FITNESS',
-  'COMMUNITY',
-  'EDUCATION',
-  'OTHER',
+  "MUSIC",
+  "BUSINESS",
+  "TECHNOLOGY",
+  "ARTS_CULTURE",
+  "FOOD_DRINK",
+  "SPORTS_FITNESS",
+  "COMMUNITY",
+  "EDUCATION",
+  "OTHER",
 ]);
 const countryCode = z
   .string()
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{2}$/)
-  .refine(isValidCountry, 'Invalid ISO 3166-1 alpha-2 country code');
+  .refine(countries.isValid, "Invalid ISO 3166-1 alpha-2 country code");
 const currency = z
   .string()
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{3}$/)
-  .refine(isCurrency, 'Invalid ISO 4217 currency code');
+  .refine(isCurrency, "Invalid ISO 4217 currency code");
 const timezone = z
   .string()
   .trim()
   .min(1)
   .max(100)
-  .refine(isTimezone, 'Invalid IANA timezone');
+  .refine(isTimezone, "Invalid IANA timezone");
 const coverImageUrl = z
   .url()
   .max(2_000)
   .refine(
-    (value) => new URL(value).protocol === 'https:',
-    'Cover image URL must use HTTPS',
+    (value) => new URL(value).protocol === "https:",
+    "Cover image URL must use HTTPS",
   );
 
 export const eventIdParamsSchema = z.object({ eventId: z.uuid() });
@@ -63,8 +63,8 @@ export const createEventSchema = z
     timezone,
   })
   .refine((event) => new Date(event.endsAt) > new Date(event.startsAt), {
-    message: 'endsAt must be after startsAt',
-    path: ['endsAt'],
+    message: "endsAt must be after startsAt",
+    path: ["endsAt"],
   });
 
 export const updateEventSchema = z
@@ -82,7 +82,7 @@ export const updateEventSchema = z
     timezone: timezone.optional(),
   })
   .refine((event) => Object.keys(event).length > 0, {
-    message: 'At least one event field is required',
+    message: "At least one event field is required",
   });
 
 export const createTicketTypeSchema = z.object({
@@ -100,7 +100,7 @@ export const updateTicketTypeSchema = z
     capacity: z.coerce.number().int().min(1).max(10_000_000).optional(),
   })
   .refine((ticketType) => Object.keys(ticketType).length > 0, {
-    message: 'At least one ticket type field is required',
+    message: "At least one ticket type field is required",
   });
 
 export const createReservationSchema = z.object({ ticketTypeId: z.uuid() });
@@ -120,8 +120,8 @@ export const discoveryQuerySchema = z
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })
   .refine(({ from, to }) => !from || !to || new Date(to) >= new Date(from), {
-    message: 'to must not be before from',
-    path: ['to'],
+    message: "to must not be before from",
+    path: ["to"],
   });
 
 export type CreateEventInput = z.infer<typeof createEventSchema>;
@@ -132,7 +132,7 @@ export type DiscoveryQuery = z.infer<typeof discoveryQuerySchema>;
 
 function isTimezone(value: string): boolean {
   try {
-    new Intl.DateTimeFormat('en', { timeZone: value }).format();
+    new Intl.DateTimeFormat("en", { timeZone: value }).format();
     return true;
   } catch {
     return false;

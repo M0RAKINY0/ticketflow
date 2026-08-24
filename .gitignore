@@ -5,9 +5,6 @@ node_modules
 /src/generated/prisma
 /generated/prisma
 /dist
-/web/dist
-/web/*.tsbuildinfo
-/web/vite.config.js
-/web/vite.config.d.ts
 /storage
 /.superpowers/
+/.worktrees/

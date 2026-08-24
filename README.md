@@ -1,8 +1,8 @@
 # Ventra Ticketing
 
-Ventra is an event-ticketing application built with React, Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins; admins manage the whole system.
+This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
-The product uses a Vite React application in `web/` and a single Express API. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints; there is no Redis, job worker, payment system, Docker, or Nginx layer.
+The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. There is no Redis, job worker, payment system, Docker, or Nginx layer.
 
 ## Capabilities
 
@@ -10,8 +10,6 @@ The product uses a Vite React application in `web/` and a single Express API. Re
 - Two account types: `USER` and `ADMIN`.
 - Authenticated users own the events they create; admins can manage every event and user.
 - Paginated public discovery of upcoming published events by search, category, date, and country.
-- Responsive discovery-first web shell with desktop and mobile navigation.
-- Same-origin browser sessions with access tokens kept only in memory.
 - Atomic capacity enforcement and per-user idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
 - Attendee reservation, ticket, and QR retrieval.
@@ -56,27 +54,7 @@ npm test
 npm run typecheck
 npm run build
 npm run format:check
-npm run test:web
-npm run typecheck:web
-npm run build:web
 ```
-
-## Web application
-
-The React workspace lives in `web/`. It uses React Router for public, authenticated event-management, attendee, and admin route boundaries; TanStack Query for server state; Tailwind-backed design tokens; Radix primitives; and a self-hosted Manrope variable font. The approved visual direction is a near-white discovery canvas with graphite typography and electric-indigo actions.
-
-Public discovery owns its state in URL parameters: `q`, `category`, `from`, `to`, `country`, and `page`. Event cards and detail screens format dates in the event's IANA timezone and prices in its ISO currency. Login and registration preserve a safe internal return path. Each ticket reservation intent creates one browser UUID sent as `Idempotency-Key`; retrying the same event and ticket type reuses that key, while changing either creates a new intent.
-
-Offline ticket records use IndexedDB database `ventra`, store `tickets`, and the compound key `[userId, ticketId]`. Records are never returned across users, and logout purges the active user's cached signed QR material before the session is removed from the interface.
-
-Start the API on port `4000`, then run the Vite development server in a second terminal:
-
-```bash
-npm run dev
-npm run dev:web
-```
-
-Vite proxies `/api` and `/health` to `http://localhost:4000`, so cookies remain same-origin in development. Browser refresh credentials stay in an `HttpOnly` cookie, while the short-lived access token exists only in module memory and is renewed through a single-flight refresh request.
 
 ## Authentication
 
@@ -95,25 +73,25 @@ Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/rol
 
 All routes below use the `/api/v1` prefix.
 
-| Method   | Path                                          | Access                | Behavior                                                                                                          |
-| -------- | --------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Method   | Path                                          | Access                | Behavior                                                                                                                                  |
+| -------- | --------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET`    | `/events`                                     | Public; optional auth | Paginated discovery; anonymous visitors see upcoming published events, authenticated users also see their own events, and admins see all. |
-| `GET`    | `/events/:eventId`                            | Public; optional auth | Published events are public; owners and admins can inspect non-public events.                                     |
-| `POST`   | `/events`                                     | Authenticated user    | Creates a draft event owned by the caller.                                                                       |
-| `PATCH`  | `/events/:eventId`                            | Owner or admin        | Updates a draft event.                                                                                            |
-| `POST`   | `/events/:eventId/publish`                    | Owner or admin        | Publishes a draft with at least one ticket type.                                                                  |
-| `POST`   | `/events/:eventId/cancel`                     | Owner or admin        | Cancels a draft or published event.                                                                               |
-| `GET`    | `/events/:eventId/ticket-types`               | Public; optional auth | Lists ticket types when the event is visible.                                                                     |
-| `POST`   | `/events/:eventId/ticket-types`               | Owner or admin        | Adds a ticket type to a draft.                                                                                    |
-| `PATCH`  | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Updates a ticket type on a draft.                                                                                 |
-| `DELETE` | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Deletes a ticket type from a draft.                                                                               |
-| `POST`   | `/events/:eventId/reservations`               | User                  | Reserves one ticket for a published event.                                                                        |
-| `GET`    | `/me/reservations`                            | Authenticated         | Lists the caller's reservations.                                                                                  |
-| `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                                                       |
-| `GET`    | `/me/tickets/:ticketId`                       | Ticket owner          | Returns one ticket.                                                                                               |
-| `GET`    | `/me/tickets/:ticketId/qr`                    | Ticket owner          | Returns the stored QR data URL and signed payload.                                                                |
-| `POST`   | `/events/:eventId/check-ins`                  | Owner or admin        | Validates a signed QR payload and consumes the ticket once.                                                       |
-| `GET`    | `/events/:eventId/check-ins`                  | Owner or admin        | Lists event check-ins.                                                                                            |
+| `GET`    | `/events/:eventId`                            | Public; optional auth | Published events are public; owners and admins can inspect non-public events.                                                             |
+| `POST`   | `/events`                                     | Authenticated user    | Creates a draft event owned by the caller.                                                                                                |
+| `PATCH`  | `/events/:eventId`                            | Owner or admin        | Updates a draft event.                                                                                                                    |
+| `POST`   | `/events/:eventId/publish`                    | Owner or admin        | Publishes a draft with at least one ticket type.                                                                                          |
+| `POST`   | `/events/:eventId/cancel`                     | Owner or admin        | Cancels a draft or published event.                                                                                                       |
+| `GET`    | `/events/:eventId/ticket-types`               | Public; optional auth | Lists ticket types when the event is visible.                                                                                             |
+| `POST`   | `/events/:eventId/ticket-types`               | Owner or admin        | Adds a ticket type to a draft.                                                                                                            |
+| `PATCH`  | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Updates a ticket type on a draft.                                                                                                         |
+| `DELETE` | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Deletes a ticket type from a draft.                                                                                                       |
+| `POST`   | `/events/:eventId/reservations`               | User                  | Reserves one ticket for a published event.                                                                                                |
+| `GET`    | `/me/reservations`                            | Authenticated         | Lists the caller's reservations.                                                                                                          |
+| `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                                                                               |
+| `GET`    | `/me/tickets/:ticketId`                       | Ticket owner          | Returns one ticket.                                                                                                                       |
+| `GET`    | `/me/tickets/:ticketId/qr`                    | Ticket owner          | Returns the stored QR data URL and signed payload.                                                                                        |
+| `POST`   | `/events/:eventId/check-ins`                  | Owner or admin        | Validates a signed QR payload and consumes the ticket once.                                                                               |
+| `GET`    | `/events/:eventId/check-ins`                  | Owner or admin        | Lists event check-ins.                                                                                                                    |
 
 Reservation requests require an `Idempotency-Key` header and a JSON body:
 
