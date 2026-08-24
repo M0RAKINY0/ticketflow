@@ -60,6 +60,8 @@ npm run format:check
 
 `src/app.ts` installs cookie parsing, JSON parsing, the root router, and the error handler. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared authentication and error handling live in `src/middleware/`.
 
+Auth and users use feature MVC modules. Their route files declare paths and shared middleware, controllers handle HTTP validation and responses, services implement use cases, and models contain Prisma queries. User request schemas live in the users module.
+
 ## Authentication
 
 Authentication endpoints are under `/api/v1/auth`:

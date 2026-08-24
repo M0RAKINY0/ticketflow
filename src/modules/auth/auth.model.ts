@@ -1,5 +1,5 @@
-import { prisma } from '../../infrastructure/prisma.js';
-import type { Role } from '../../generated/prisma/client.js';
+import type { Role } from "../../generated/prisma/client.js";
+import { prisma } from "../../infrastructure/prisma.js";
 
 type CreateUserInput = {
   email: string;
@@ -9,7 +9,7 @@ type CreateUserInput = {
   role: Role;
 };
 
-export const authRepository = {
+export const authModel = {
   findUserByEmail(email: string) {
     return prisma.user.findUnique({ where: { email } });
   },

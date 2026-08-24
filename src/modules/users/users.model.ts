@@ -1,5 +1,5 @@
-import type { Prisma, Role } from '../../generated/prisma/client.js';
-import { prisma } from '../../infrastructure/prisma.js';
+import type { Prisma, Role } from "../../generated/prisma/client.js";
+import { prisma } from "../../infrastructure/prisma.js";
 
 const publicUserSelect = {
   id: true,
@@ -10,7 +10,7 @@ const publicUserSelect = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
-export const usersRepository = {
+export const usersModel = {
   findById(id: string) {
     return prisma.user.findUnique({ where: { id } });
   },
@@ -30,8 +30,8 @@ export const usersRepository = {
       ...(input.query
         ? {
             OR: [
-              { name: { contains: input.query, mode: 'insensitive' } },
-              { email: { contains: input.query, mode: 'insensitive' } },
+              { name: { contains: input.query, mode: "insensitive" } },
+              { email: { contains: input.query, mode: "insensitive" } },
             ],
           }
         : {}),
@@ -40,7 +40,7 @@ export const usersRepository = {
       prisma.user.findMany({
         where,
         select: publicUserSelect,
-        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         skip: (input.page - 1) * input.pageSize,
         take: input.pageSize,
       }),

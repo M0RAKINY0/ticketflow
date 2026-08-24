@@ -1,13 +1,16 @@
-import type { User } from '../../generated/prisma/client.js';
-import { AppError } from '../../shared/errors.js';
-import { hashPassword, verifyPassword } from '../../services/auth.js';
+import type { User } from "../../generated/prisma/client.js";
+import bcrypt from "bcrypt";
+
+import { AppError } from "../../shared/errors.js";
 import {
   issueRefreshToken,
   revokeRefreshToken,
   rotateRefreshToken,
   signAccessToken,
-} from '../../utilities/token.js';
-import { authRepository } from './auth.repository.js';
+} from "../../utilities/token.js";
+import { authModel } from "./auth.model.js";
+
+const PASSWORD_HASH_COST = 12;
 
 type RegistrationInput = {
   email: string;
@@ -21,7 +24,7 @@ type LoginInput = {
   password: string;
 };
 
-type PublicUser = Omit<User, 'passwordHash'>;
+type PublicUser = Omit<User, "passwordHash">;
 
 export type AuthenticationResult = {
   user: PublicUser;
@@ -34,7 +37,9 @@ function toPublicUser(user: User): PublicUser {
   return publicUser;
 }
 
-async function createAuthenticationResult(user: User): Promise<AuthenticationResult> {
+async function createAuthenticationResult(
+  user: User,
+): Promise<AuthenticationResult> {
   const refreshToken = await issueRefreshToken(user.id);
 
   return {
@@ -44,26 +49,36 @@ async function createAuthenticationResult(user: User): Promise<AuthenticationRes
   };
 }
 
-export async function register(input: RegistrationInput): Promise<AuthenticationResult> {
-  const existingUser = await authRepository.findUserByEmail(input.email);
+export async function register(
+  input: RegistrationInput,
+): Promise<AuthenticationResult> {
+  const existingUser = await authModel.findUserByEmail(input.email);
 
   if (existingUser) {
-    throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'Email is already registered');
+    throw new AppError(
+      409,
+      "EMAIL_ALREADY_REGISTERED",
+      "Email is already registered",
+    );
   }
 
   let user: User;
 
   try {
-    user = await authRepository.createUser({
+    user = await authModel.createUser({
       email: input.email,
       name: input.name,
       phoneNumber: input.phoneNumber,
       passwordHash: await hashPassword(input.password),
-      role: 'USER',
+      role: "USER",
     });
   } catch (error) {
     if (isPrismaUniqueConstraintError(error)) {
-      throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'Email is already registered');
+      throw new AppError(
+        409,
+        "EMAIL_ALREADY_REGISTERED",
+        "Email is already registered",
+      );
     }
 
     throw error;
@@ -73,10 +88,10 @@ export async function register(input: RegistrationInput): Promise<Authentication
 }
 
 export async function login(input: LoginInput): Promise<AuthenticationResult> {
-  const user = await authRepository.findUserByEmail(input.email);
+  const user = await authModel.findUserByEmail(input.email);
 
   if (!user || !(await verifyPassword(input.password, user.passwordHash))) {
-    throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
+    throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
   }
 
   return createAuthenticationResult(user);
@@ -84,10 +99,10 @@ export async function login(input: LoginInput): Promise<AuthenticationResult> {
 
 export async function refresh(rawToken: string): Promise<AuthenticationResult> {
   const { rawToken: refreshToken, user } = await rotateRefreshToken(rawToken);
-  const fullUser = await authRepository.findUserById(user.id);
+  const fullUser = await authModel.findUserById(user.id);
 
   if (!fullUser) {
-    throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Invalid refresh token');
+    throw new AppError(401, "INVALID_REFRESH_TOKEN", "Invalid refresh token");
   }
 
   return {
@@ -101,11 +116,22 @@ export function logout(rawToken: string): Promise<void> {
   return revokeRefreshToken(rawToken);
 }
 
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, PASSWORD_HASH_COST);
+}
+
+export function verifyPassword(
+  password: string,
+  passwordHash: string,
+): Promise<boolean> {
+  return bcrypt.compare(password, passwordHash);
+}
+
 function isPrismaUniqueConstraintError(error: unknown): boolean {
   return (
-    typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'P2002'
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
   );
 }
