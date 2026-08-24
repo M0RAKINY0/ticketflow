@@ -1,38 +1,48 @@
-# ticketflow
+# Ventra backend
 
-ticketflow is a production-inspired event ticketing backend built with Node.js, Express, TypeScript, PostgreSQL, Redis, and Docker. It enables organizers to create and manage events while allowing attendees to reserve tickets, receive QR-coded digital passes, and check in seamlessly at event venues.
+This repository contains the backend foundation for Ventra, the city-guide event product. The frontend is maintained separately. The current backend slice is intentionally small: it exposes a health probe and establishes the HTTP and configuration boundaries that future authentication, events, reservations, and ticketing routes will inherit.
 
-The project is designed to go beyond basic CRUD operations and explore backend engineering concepts commonly used in real-world systems. It implements authentication and role-based access control, ticket inventory management, QR code generation, Redis caching, rate limiting, background job processing, and transactional database operations to ensure reliability and consistency.
+## Security baseline
 
-Organizers can create events, define ticket categories, monitor ticket availability, and validate attendees during check-in. Each ticket is assigned a unique identifier and QR code, enabling fast and secure verification at the point of entry. To prevent overselling, ticket reservations are processed using database transactions, ensuring inventory remains accurate even under concurrent requests.
+- Helmet security headers are enabled for every response.
+- Express fingerprinting is disabled.
+- JSON request bodies are limited to 1 MB.
+- CORS accepts only explicit HTTP(S) origins from `FRONTEND_ORIGINS`; wildcard origins are rejected.
+- A process-local rate limit protects the API boundary before product routes are added.
+- Malformed, oversized, CORS, unknown-route, and unexpected errors return bounded JSON responses without stack traces.
+- Runtime configuration is validated before the server starts.
+- Node HTTP deadlines are explicit: incomplete headers close after 15 seconds, requests after 30 seconds, idle sockets after 30 seconds, and keep-alive sockets after 5 seconds. Internet-facing proxies and load balancers must use limits no longer than these values.
+- The default bind host is `127.0.0.1`; deployments that need an external interface must set `HOST` deliberately.
+- `.env` files are ignored and `.env.example` contains placeholders only.
 
-Ventra follows a layered architecture consisting of controllers, services, repositories, and middleware, promoting maintainability and scalability. Redis is used for caching frequently accessed data, managing rate limits, and powering asynchronous jobs through BullMQ. The application is fully containerized with Docker and can be deployed behind Nginx for load balancing and horizontal scaling.
+Authentication, authorization, event ownership, reservation transactions, QR tickets, Redis workers, and persistence routes are not implemented in this checkout yet. They must be added behind the existing boundary with route-level validation, authentication, authorization, and transaction-specific tests.
 
-## Key Features
+## Requirements
 
-* JWT-based authentication and authorization
-* Role-based access control (User, Organizer, Admin)
-* Event and ticket type management
-* Ticket reservation with transactional inventory updates
-* Unique ticket generation and QR code creation
-* Event check-in and ticket validation
-* Redis-powered caching
-* API rate limiting
-* Background job processing with BullMQ
-* Request logging and centralized error handling
-* Dockerized development and deployment environment
-* Scalable architecture with Nginx load balancing support
+- Node.js 20 or newer
+- npm
 
-## Tech Stack
+## Setup
 
-* Node.js
-* Express.js
-* TypeScript
-* PostgreSQL
-* Redis
-* BullMQ
-* Docker
-* Nginx
-* JWT Authentication
+```bash
+npm install
+cp .env.example .env
+npm run dev
+```
 
-Ventra serves as a practical backend engineering project focused on building scalable, maintainable, and production-ready REST APIs while exploring modern backend infrastructure and system design patterns.
+The health probe is available at `http://127.0.0.1:4000/health` by default.
+
+## Verification
+
+```bash
+npm run typecheck
+npm run build
+npm test
+npm audit --audit-level=high
+```
+
+## Pull request checks
+
+The [`Backend CI`](.github/workflows/backend-ci.yml) workflow runs for every pull request and can also be started manually. It installs from `package-lock.json`, typechecks and builds the backend, runs the automated tests, validates and generates the Prisma client, and rejects high-severity dependency advisories.
+
+Security-hardening work is documented in [`docs/2026-08-24-backend-security-hardening-plan.md`](docs/2026-08-24-backend-security-hardening-plan.md).
