@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { ZodError, z } from 'zod';
 
-import { authenticate, requireRole } from '../../shared/auth.js';
+import { authenticate, requireRole } from '../../middleware/auth.middleware.js';
 import { AppError } from '../../shared/errors.js';
 import { success } from '../../shared/response.js';
 import { assignRole, getCurrentUser, listUsers } from './users.service.js';

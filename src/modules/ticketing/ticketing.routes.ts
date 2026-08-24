@@ -5,7 +5,7 @@ import {
   authenticate,
   authenticateOptional,
   requireRole,
-} from '../../shared/auth.js';
+} from '../../middleware/auth.middleware.js';
 import { AppError } from '../../shared/errors.js';
 import { success } from '../../shared/response.js';
 import {

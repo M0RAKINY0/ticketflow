@@ -1,8 +1,8 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 import type { Role } from '../generated/prisma/client.js';
+import { AppError } from '../shared/errors.js';
 import { verifyAccessToken } from '../utilities/token.js';
-import { AppError } from './errors.js';
 
 export type AuthenticatedPrincipal = {
   id: string;

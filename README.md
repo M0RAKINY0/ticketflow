@@ -56,6 +56,10 @@ npm run build
 npm run format:check
 ```
 
+## HTTP composition
+
+`src/app.ts` installs cookie parsing, JSON parsing, the root router, and the error handler. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared authentication and error handling live in `src/middleware/`.
+
 ## Authentication
 
 Authentication endpoints are under `/api/v1/auth`:
