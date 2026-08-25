@@ -15,6 +15,16 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
+  if (isCorsError(error)) {
+    response.status(403).json({
+      error: {
+        code: "ORIGIN_DENIED",
+        message: "Request origin is not allowed",
+      },
+    });
+    return;
+  }
+
   if (error instanceof AppError) {
     response.status(error.statusCode).json({
       error: {
@@ -33,6 +43,15 @@ export const errorHandler: ErrorRequestHandler = (
     },
   });
 };
+
+function isCorsError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "CORS_ORIGIN_DENIED"
+  );
+}
 
 function getBodyParserError(error: unknown):
   | {

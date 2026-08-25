@@ -32,6 +32,10 @@ Configure the service with environment variables:
 ```dotenv
 NODE_ENV=development
 PORT=4000
+HOST=127.0.0.1
+FRONTEND_ORIGINS=http://localhost:5173
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=100
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ventra
 ACCESS_TOKEN_SECRET=replace-with-at-least-32-characters
 REFRESH_TOKEN_SECRET=replace-with-at-least-32-characters
@@ -60,7 +64,7 @@ Pull requests targeting `main` run the full test suite, type checking, and produ
 
 ## HTTP composition
 
-`src/app.ts` installs cookie parsing, JSON parsing, the root router, and the error handler. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared authentication and error handling live in `src/middleware/`.
+`src/app.ts` installs secure headers, the browser-origin allowlist, request throttling, cookie parsing, size-limited JSON parsing, the root router, and safe error responses. `src/server.ts` sets explicit HTTP timeouts. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared HTTP security, authentication, and error handling live in `src/middleware/`.
 
 ## MVC module boundaries
 
