@@ -60,7 +60,18 @@ npm run format:check
 
 `src/app.ts` installs cookie parsing, JSON parsing, the root router, and the error handler. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared authentication and error handling live in `src/middleware/`.
 
-Auth, users, and ticketing use feature MVC modules. Route files declare paths and shared middleware. Controllers handle HTTP validation and responses. Services implement business rules, and models contain standalone Prisma queries. Ticketing keeps publication, reservation, and check-in transaction callbacks in its service so their conditional writes remain in one place. Request schemas stay with their feature modules.
+## MVC module boundaries
+
+Auth, users, and ticketing live under `src/modules/`. Each feature has a clear job at every layer:
+
+- Route files declare endpoint paths and attach authentication or role middleware. They call controllers and do not call services directly.
+- Controllers translate HTTP requests into feature calls. They validate input with the feature schemas, choose status codes, manage cookies where needed, and return the standard response envelopes.
+- Services enforce business rules and coordinate work. Ticketing services keep publication, reservation, and check-in transaction callbacks here because those operations depend on related conditional writes succeeding together.
+- Models own runtime database access. They contain the feature's reusable Prisma reads and writes and accept an existing Prisma transaction client when a service needs them inside a transaction.
+- Schemas define and parse each feature's request data. They stay next to the feature that uses them.
+- Middleware handles shared cross-cutting HTTP work such as bearer-token authentication, role checks, and error responses.
+
+Prisma's database schema and migrations remain under `prisma/`. Feature model files use the generated Prisma client at runtime; they do not replace the schema or migrations.
 
 ## Authentication
 

@@ -1,8 +1,8 @@
-import express, { type Express } from 'express';
-import cookieParser from 'cookie-parser';
+import express, { type Express } from "express";
+import cookieParser from "cookie-parser";
 
-import { errorHandler } from './middleware/error.middleware.js';
-import { apiRouter } from './routes/index.js';
+import { errorHandler } from "./middleware/error.middleware.js";
+import { apiRouter } from "./routes/index.js";
 
 export function createApp(): Express {
   const app = express();

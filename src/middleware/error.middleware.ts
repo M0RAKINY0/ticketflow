@@ -1,6 +1,6 @@
-import type { ErrorRequestHandler } from 'express';
+import type { ErrorRequestHandler } from "express";
 
-import { AppError } from '../shared/errors.js';
+import { AppError } from "../shared/errors.js";
 
 export const errorHandler: ErrorRequestHandler = (
   error: unknown,
@@ -28,8 +28,8 @@ export const errorHandler: ErrorRequestHandler = (
 
   response.status(500).json({
     error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Internal server error',
+      code: "INTERNAL_ERROR",
+      message: "Internal server error",
     },
   });
 };
@@ -40,21 +40,21 @@ function getBodyParserError(error: unknown):
       body: { code: string; message: string };
     }
   | undefined {
-  if (typeof error !== 'object' || error === null || !('status' in error)) {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
     return undefined;
   }
 
   if (error.status === 413) {
     return {
       statusCode: 413,
-      body: { code: 'REQUEST_TOO_LARGE', message: 'Request body is too large' },
+      body: { code: "REQUEST_TOO_LARGE", message: "Request body is too large" },
     };
   }
 
   if (error.status === 400) {
     return {
       statusCode: 400,
-      body: { code: 'INVALID_JSON', message: 'Invalid JSON body' },
+      body: { code: "INVALID_JSON", message: "Invalid JSON body" },
     };
   }
 
