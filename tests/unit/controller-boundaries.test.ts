@@ -24,6 +24,25 @@ import {
   refreshCookieOptions,
 } from "../../src/modules/auth/auth.cookie.js";
 import { authRouter } from "../../src/modules/auth/auth.routes.js";
+import {
+  cancelEventController,
+  createCheckInController,
+  createEventController,
+  createReservationController,
+  createTicketTypeController,
+  deleteTicketTypeController,
+  getEventController,
+  getTicketController,
+  getTicketQrController,
+  listCheckInsController,
+  listEventsController,
+  listReservationsController,
+  listTicketTypesController,
+  listTicketsController,
+  publishEventController,
+  updateEventController,
+  updateTicketTypeController,
+} from "../../src/modules/ticketing/ticketing.controller.js";
 import { ticketingRouter } from "../../src/modules/ticketing/ticketing.routes.js";
 import {
   assignRoleController,
@@ -337,70 +356,62 @@ describe("ticketing controllers and routes", () => {
   const userToken = signAccessToken({ id: userId, role: "USER" });
 
   it.each([
-    ["get", "/events", authenticateOptional, "listEventsController"],
-    ["get", "/events/:eventId", authenticateOptional, "getEventController"],
-    ["post", "/events", authenticate, "createEventController"],
-    ["patch", "/events/:eventId", authenticate, "updateEventController"],
+    ["get", "/events", [authenticateOptional, listEventsController]],
+    ["get", "/events/:eventId", [authenticateOptional, getEventController]],
+    ["post", "/events", [authenticate, createEventController]],
+    ["patch", "/events/:eventId", [authenticate, updateEventController]],
     [
       "post",
       "/events/:eventId/publish",
-      authenticate,
-      "publishEventController",
+      [authenticate, publishEventController],
     ],
-    ["post", "/events/:eventId/cancel", authenticate, "cancelEventController"],
+    ["post", "/events/:eventId/cancel", [authenticate, cancelEventController]],
     [
       "get",
       "/events/:eventId/ticket-types",
-      authenticateOptional,
-      "listTicketTypesController",
+      [authenticateOptional, listTicketTypesController],
     ],
     [
       "post",
       "/events/:eventId/ticket-types",
-      authenticate,
-      "createTicketTypeController",
+      [authenticate, createTicketTypeController],
     ],
     [
       "patch",
       "/events/:eventId/ticket-types/:ticketTypeId",
-      authenticate,
-      "updateTicketTypeController",
+      [authenticate, updateTicketTypeController],
     ],
     [
       "delete",
       "/events/:eventId/ticket-types/:ticketTypeId",
-      authenticate,
-      "deleteTicketTypeController",
+      [authenticate, deleteTicketTypeController],
     ],
     [
       "post",
       "/events/:eventId/reservations",
-      authenticate,
-      "createReservationController",
+      [authenticate, expect.any(Function), createReservationController],
     ],
-    ["get", "/me/reservations", authenticate, "listReservationsController"],
-    ["get", "/me/tickets", authenticate, "listTicketsController"],
-    ["get", "/me/tickets/:ticketId/qr", authenticate, "getTicketQrController"],
-    ["get", "/me/tickets/:ticketId", authenticate, "getTicketController"],
+    ["get", "/me/reservations", [authenticate, listReservationsController]],
+    ["get", "/me/tickets", [authenticate, listTicketsController]],
+    ["get", "/me/tickets/:ticketId/qr", [authenticate, getTicketQrController]],
+    ["get", "/me/tickets/:ticketId", [authenticate, getTicketController]],
     [
       "post",
       "/events/:eventId/check-ins",
-      authenticate,
-      "createCheckInController",
+      [authenticate, createCheckInController],
     ],
     [
       "get",
       "/events/:eventId/check-ins",
-      authenticate,
-      "listCheckInsController",
+      [authenticate, listCheckInsController],
     ],
   ])(
-    "connects %s %s to its named controller after the established authentication middleware",
-    (method, path, middleware, controllerName) => {
+    "connects %s %s to its complete established handler chain",
+    (method, path, expectedHandlers) => {
       const handlers = routeHandlers(ticketingRouter, path, method);
 
-      expect(handlers[0]).toBe(middleware);
-      expect((handlers.at(-1) as { name: string }).name).toBe(controllerName);
+      expect(handlers).toHaveLength(expectedHandlers.length);
+      expect(handlers).toEqual(expectedHandlers);
     },
   );
 
