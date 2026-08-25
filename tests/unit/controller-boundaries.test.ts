@@ -8,7 +8,10 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../../src/config/env.js";
-import { authenticate } from "../../src/middleware/auth.middleware.js";
+import {
+  authenticate,
+  authenticateOptional,
+} from "../../src/middleware/auth.middleware.js";
 import { errorHandler } from "../../src/middleware/error.middleware.js";
 import {
   loginController,
@@ -21,12 +24,14 @@ import {
   refreshCookieOptions,
 } from "../../src/modules/auth/auth.cookie.js";
 import { authRouter } from "../../src/modules/auth/auth.routes.js";
+import { ticketingRouter } from "../../src/modules/ticketing/ticketing.routes.js";
 import {
   assignRoleController,
   getCurrentUserController,
   listUsersController,
 } from "../../src/modules/users/users.controller.js";
 import { usersRouter } from "../../src/modules/users/users.routes.js";
+import { AppError } from "../../src/shared/errors.js";
 import { success } from "../../src/shared/response.js";
 import { signAccessToken } from "../../src/utilities/token.js";
 
@@ -43,8 +48,32 @@ const usersService = vi.hoisted(() => ({
   assignRole: vi.fn(),
 }));
 
+const ticketingService = vi.hoisted(() => ({
+  listEvents: vi.fn(),
+  getEvent: vi.fn(),
+  createEvent: vi.fn(),
+  updateEvent: vi.fn(),
+  publishEvent: vi.fn(),
+  cancelEvent: vi.fn(),
+  listTicketTypes: vi.fn(),
+  createTicketType: vi.fn(),
+  updateTicketType: vi.fn(),
+  deleteTicketType: vi.fn(),
+  createReservation: vi.fn(),
+  listReservations: vi.fn(),
+  listTickets: vi.fn(),
+  getTicketQr: vi.fn(),
+  getTicket: vi.fn(),
+  createCheckIn: vi.fn(),
+  listCheckIns: vi.fn(),
+}));
+
 vi.mock("../../src/modules/auth/auth.service.js", () => authService);
 vi.mock("../../src/modules/users/users.service.js", () => usersService);
+vi.mock(
+  "../../src/modules/ticketing/ticketing.service.js",
+  () => ticketingService,
+);
 
 type ResponseDouble = Pick<
   Response,
@@ -296,6 +325,177 @@ describe("auth and users routes", () => {
         error: {
           code: "FORBIDDEN",
           message: "You do not have permission to perform this action",
+        },
+      });
+  });
+});
+
+describe("ticketing controllers and routes", () => {
+  const eventId = "1e4486b5-9d96-4e34-a306-12b01197c6a5";
+  const ticketId = "2e4486b5-9d96-4e34-a306-12b01197c6a5";
+  const userId = "3e4486b5-9d96-4e34-a306-12b01197c6a5";
+  const userToken = signAccessToken({ id: userId, role: "USER" });
+
+  it.each([
+    ["get", "/events", authenticateOptional, "listEventsController"],
+    ["get", "/events/:eventId", authenticateOptional, "getEventController"],
+    ["post", "/events", authenticate, "createEventController"],
+    ["patch", "/events/:eventId", authenticate, "updateEventController"],
+    [
+      "post",
+      "/events/:eventId/publish",
+      authenticate,
+      "publishEventController",
+    ],
+    ["post", "/events/:eventId/cancel", authenticate, "cancelEventController"],
+    [
+      "get",
+      "/events/:eventId/ticket-types",
+      authenticateOptional,
+      "listTicketTypesController",
+    ],
+    [
+      "post",
+      "/events/:eventId/ticket-types",
+      authenticate,
+      "createTicketTypeController",
+    ],
+    [
+      "patch",
+      "/events/:eventId/ticket-types/:ticketTypeId",
+      authenticate,
+      "updateTicketTypeController",
+    ],
+    [
+      "delete",
+      "/events/:eventId/ticket-types/:ticketTypeId",
+      authenticate,
+      "deleteTicketTypeController",
+    ],
+    [
+      "post",
+      "/events/:eventId/reservations",
+      authenticate,
+      "createReservationController",
+    ],
+    ["get", "/me/reservations", authenticate, "listReservationsController"],
+    ["get", "/me/tickets", authenticate, "listTicketsController"],
+    ["get", "/me/tickets/:ticketId/qr", authenticate, "getTicketQrController"],
+    ["get", "/me/tickets/:ticketId", authenticate, "getTicketController"],
+    [
+      "post",
+      "/events/:eventId/check-ins",
+      authenticate,
+      "createCheckInController",
+    ],
+    [
+      "get",
+      "/events/:eventId/check-ins",
+      authenticate,
+      "listCheckInsController",
+    ],
+  ])(
+    "connects %s %s to its named controller after the established authentication middleware",
+    (method, path, middleware, controllerName) => {
+      const handlers = routeHandlers(ticketingRouter, path, method);
+
+      expect(handlers[0]).toBe(middleware);
+      expect((handlers.at(-1) as { name: string }).name).toBe(controllerName);
+    },
+  );
+
+  it("keeps user-role enforcement before reservation handling", async () => {
+    const handlers = routeHandlers(
+      ticketingRouter,
+      "/events/:eventId/reservations",
+      "post",
+    );
+    expect(handlers).toHaveLength(3);
+
+    const app = express();
+    app.use(express.json());
+    app.use(ticketingRouter);
+    app.use(errorHandler);
+
+    await request(app)
+      .post(`/events/${eventId}/reservations`)
+      .set(
+        "authorization",
+        `Bearer ${signAccessToken({ id: userId, role: "ADMIN" })}`,
+      )
+      .set("idempotency-key", "reservation-key")
+      .send({ ticketTypeId: ticketId })
+      .expect(403, {
+        error: {
+          code: "FORBIDDEN",
+          message: "You do not have permission to perform this action",
+        },
+      });
+    expect(ticketingService.createReservation).not.toHaveBeenCalled();
+  });
+
+  it("returns 201 for a new reservation and 200 for its idempotent replay", async () => {
+    const reservation = { id: "reservation-1" };
+    ticketingService.createReservation
+      .mockResolvedValueOnce({ created: true, reservation })
+      .mockResolvedValueOnce({ created: false, reservation });
+    const app = express();
+    app.use(express.json());
+    app.use(ticketingRouter);
+    app.use(errorHandler);
+
+    const makeRequest = () =>
+      request(app)
+        .post(`/events/${eventId}/reservations`)
+        .set("authorization", `Bearer ${userToken}`)
+        .set("idempotency-key", "reservation-key")
+        .send({ ticketTypeId: ticketId });
+
+    await makeRequest().expect(201, { data: { reservation } });
+    await makeRequest().expect(200, { data: { reservation } });
+    expect(ticketingService.createReservation).toHaveBeenNthCalledWith(
+      1,
+      eventId,
+      ticketId,
+      userId,
+      "reservation-key",
+    );
+  });
+
+  it("maps malformed ticketing input to the established validation error", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(ticketingRouter);
+    app.use(errorHandler);
+
+    await request(app)
+      .get("/events/not-a-uuid")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error).toEqual({
+          code: "VALIDATION_ERROR",
+          message: "Request validation failed",
+          details: expect.any(Object),
+        });
+      });
+    expect(ticketingService.getEvent).not.toHaveBeenCalled();
+  });
+
+  it("forwards service failures through the shared error handler", async () => {
+    ticketingService.getTicket.mockRejectedValue(
+      new AppError(404, "TICKET_NOT_FOUND", "Ticket was not found"),
+    );
+    const app = express();
+    app.use(ticketingRouter);
+    app.use(errorHandler);
+
+    await request(app)
+      .get(`/me/tickets/${ticketId}`)
+      .set("authorization", `Bearer ${userToken}`)
+      .expect(404, {
+        error: {
+          code: "TICKET_NOT_FOUND",
+          message: "Ticket was not found",
         },
       });
   });

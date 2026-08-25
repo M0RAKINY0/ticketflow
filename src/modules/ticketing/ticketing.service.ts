@@ -2,68 +2,48 @@ import type {
   EventStatus,
   Prisma,
   Role,
-} from '../../generated/prisma/client.js';
-import { prisma } from '../../infrastructure/prisma.js';
-import { AppError } from '../../shared/errors.js';
-import { canManageEvent } from './authorization.js';
+} from "../../generated/prisma/client.js";
+import { prisma } from "../../infrastructure/prisma.js";
+import { AppError } from "../../shared/errors.js";
+import { canManageEvent } from "./ticketing.authorization.js";
 import {
   createTicketPublicId,
   createTicketQrDataUrl,
   createTicketQrPayload,
   verifyTicketQrPayload,
-} from '../../utilities/ticket-qr.js';
+} from "../../utilities/ticket-qr.js";
 import type {
   CreateEventInput,
   CreateTicketTypeInput,
   DiscoveryQuery,
   UpdateEventInput,
   UpdateTicketTypeInput,
-} from './ticketing.schema.js';
+} from "./ticketing.schema.js";
+import { ticketingEventInclude, ticketingModel } from "./ticketing.model.js";
 
 type Principal = { id: string; role: Role };
 
-const eventInclude = {
-  organizer: { select: { id: true, name: true } },
-  ticketTypes: { orderBy: { createdAt: 'asc' as const } },
-} satisfies Prisma.EventInclude;
-
-const reservationInclude = {
-  event: true,
-  ticketType: true,
-  ticket: true,
-} satisfies Prisma.ReservationInclude;
-
-const ticketInclude = {
-  reservation: {
-    include: {
-      event: true,
-      ticketType: true,
-    },
-  },
-  checkIn: true,
-} satisfies Prisma.TicketInclude;
-
 export async function listEvents(query: DiscoveryQuery, principal?: Principal) {
   const visibility: Prisma.EventWhereInput =
-    principal?.role === 'ADMIN'
+    principal?.role === "ADMIN"
       ? {}
       : principal
         ? {
             OR: [
-              { status: 'PUBLISHED', startsAt: { gte: new Date() } },
+              { status: "PUBLISHED", startsAt: { gte: new Date() } },
               { organizerId: principal.id },
             ],
           }
-        : { status: 'PUBLISHED', startsAt: { gte: new Date() } };
+        : { status: "PUBLISHED", startsAt: { gte: new Date() } };
 
   const filters: Prisma.EventWhereInput[] = [];
   if (query.query) {
     filters.push({
       OR: [
-        { title: { contains: query.query, mode: 'insensitive' } },
-        { venue: { contains: query.query, mode: 'insensitive' } },
-        { city: { contains: query.query, mode: 'insensitive' } },
-        { organizer: { name: { contains: query.query, mode: 'insensitive' } } },
+        { title: { contains: query.query, mode: "insensitive" } },
+        { venue: { contains: query.query, mode: "insensitive" } },
+        { city: { contains: query.query, mode: "insensitive" } },
+        { organizer: { name: { contains: query.query, mode: "insensitive" } } },
       ],
     });
   }
@@ -83,28 +63,20 @@ export async function listEvents(query: DiscoveryQuery, principal?: Principal) {
   };
 
   const skip = (query.page - 1) * query.pageSize;
-  const [items, total] = await prisma.$transaction([
-    prisma.event.findMany({
-      where,
-      include: eventInclude,
-      orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
-      skip,
-      take: query.pageSize,
-    }),
-    prisma.event.count({ where }),
-  ]);
+  const { items, total } = await ticketingModel.listEvents({
+    where,
+    skip,
+    take: query.pageSize,
+  });
 
   return { items, page: query.page, pageSize: query.pageSize, total };
 }
 
 export async function getEvent(eventId: string, principal?: Principal) {
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: eventInclude,
-  });
+  const event = await ticketingModel.findEventById(eventId);
 
   if (!event || !canViewEvent(event.status, event.organizerId, principal)) {
-    throw new AppError(404, 'EVENT_NOT_FOUND', 'Event was not found');
+    throw new AppError(404, "EVENT_NOT_FOUND", "Event was not found");
   }
 
   return event;
@@ -127,10 +99,7 @@ export function createEvent(organizerId: string, input: CreateEventInput) {
   if (input.coverImageUrl !== undefined)
     data.coverImageUrl = input.coverImageUrl;
 
-  return prisma.event.create({
-    data,
-    include: eventInclude,
-  });
+  return ticketingModel.createEvent(data);
 }
 
 export async function updateEvent(
@@ -140,7 +109,7 @@ export async function updateEvent(
 ) {
   const event = await requireOwnedEvent(eventId, principal);
 
-  if (event.status !== 'DRAFT') {
+  if (event.status !== "DRAFT") {
     throw eventLocked();
   }
 
@@ -150,8 +119,8 @@ export async function updateEvent(
   if (endsAt <= startsAt) {
     throw new AppError(
       400,
-      'VALIDATION_ERROR',
-      'endsAt must be after startsAt',
+      "VALIDATION_ERROR",
+      "endsAt must be after startsAt",
     );
   }
 
@@ -169,18 +138,14 @@ export async function updateEvent(
   if (input.currency !== undefined) data.currency = input.currency;
   if (input.timezone !== undefined) data.timezone = input.timezone;
 
-  return prisma.event.update({
-    where: { id: eventId },
-    data,
-    include: eventInclude,
-  });
+  return ticketingModel.updateEvent(eventId, data);
 }
 
 export async function publishEvent(eventId: string, principal: Principal) {
   return prisma.$transaction(async (transaction) => {
     const event = await requireOwnedEvent(eventId, principal, transaction);
 
-    if (event.status !== 'DRAFT') {
+    if (event.status !== "DRAFT") {
       throw eventLocked();
     }
 
@@ -190,15 +155,15 @@ export async function publishEvent(eventId: string, principal: Principal) {
     if (ticketTypeCount === 0) {
       throw new AppError(
         409,
-        'EVENT_HAS_NO_TICKET_TYPES',
-        'An event needs at least one ticket type before publication',
+        "EVENT_HAS_NO_TICKET_TYPES",
+        "An event needs at least one ticket type before publication",
       );
     }
 
     return transaction.event.update({
       where: { id: eventId },
-      data: { status: 'PUBLISHED' },
-      include: eventInclude,
+      data: { status: "PUBLISHED" },
+      include: ticketingEventInclude,
     });
   });
 }
@@ -206,28 +171,21 @@ export async function publishEvent(eventId: string, principal: Principal) {
 export async function cancelEvent(eventId: string, principal: Principal) {
   const event = await requireOwnedEvent(eventId, principal);
 
-  if (event.status === 'CANCELLED') {
+  if (event.status === "CANCELLED") {
     throw new AppError(
       409,
-      'EVENT_ALREADY_CANCELLED',
-      'Event is already cancelled',
+      "EVENT_ALREADY_CANCELLED",
+      "Event is already cancelled",
     );
   }
 
-  return prisma.event.update({
-    where: { id: eventId },
-    data: { status: 'CANCELLED' },
-    include: eventInclude,
-  });
+  return ticketingModel.updateEvent(eventId, { status: "CANCELLED" });
 }
 
 export async function listTicketTypes(eventId: string, principal?: Principal) {
   await getEvent(eventId, principal);
 
-  return prisma.ticketType.findMany({
-    where: { eventId },
-    orderBy: { createdAt: 'asc' },
-  });
+  return ticketingModel.listTicketTypes(eventId);
 }
 
 export async function createTicketType(
@@ -246,15 +204,13 @@ export async function createTicketType(
     };
     if (input.description !== undefined) data.description = input.description;
 
-    return await prisma.ticketType.create({
-      data,
-    });
+    return await ticketingModel.createTicketType(data);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       throw new AppError(
         409,
-        'TICKET_TYPE_NAME_EXISTS',
-        'A ticket type with this name already exists for the event',
+        "TICKET_TYPE_NAME_EXISTS",
+        "A ticket type with this name already exists for the event",
       );
     }
 
@@ -269,15 +225,13 @@ export async function updateTicketType(
   input: UpdateTicketTypeInput,
 ) {
   await requireDraftOwnedEvent(eventId, principal);
-  const ticketType = await prisma.ticketType.findFirst({
-    where: { id: ticketTypeId, eventId },
-  });
+  const ticketType = await ticketingModel.findTicketType(eventId, ticketTypeId);
 
   if (!ticketType) {
     throw new AppError(
       404,
-      'TICKET_TYPE_NOT_FOUND',
-      'Ticket type was not found',
+      "TICKET_TYPE_NOT_FOUND",
+      "Ticket type was not found",
     );
   }
 
@@ -287,8 +241,8 @@ export async function updateTicketType(
   ) {
     throw new AppError(
       409,
-      'CAPACITY_BELOW_RESERVED_COUNT',
-      'Capacity cannot be lower than the reserved ticket count',
+      "CAPACITY_BELOW_RESERVED_COUNT",
+      "Capacity cannot be lower than the reserved ticket count",
     );
   }
 
@@ -299,16 +253,13 @@ export async function updateTicketType(
   if (input.capacity !== undefined) data.capacity = input.capacity;
 
   try {
-    return await prisma.ticketType.update({
-      where: { id: ticketTypeId },
-      data,
-    });
+    return await ticketingModel.updateTicketType(ticketTypeId, data);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       throw new AppError(
         409,
-        'TICKET_TYPE_NAME_EXISTS',
-        'A ticket type with this name already exists for the event',
+        "TICKET_TYPE_NAME_EXISTS",
+        "A ticket type with this name already exists for the event",
       );
     }
 
@@ -322,15 +273,13 @@ export async function deleteTicketType(
   principal: Principal,
 ): Promise<void> {
   await requireDraftOwnedEvent(eventId, principal);
-  const removed = await prisma.ticketType.deleteMany({
-    where: { id: ticketTypeId, eventId },
-  });
+  const removed = await ticketingModel.deleteTicketType(eventId, ticketTypeId);
 
   if (removed.count === 0) {
     throw new AppError(
       404,
-      'TICKET_TYPE_NOT_FOUND',
-      'Ticket type was not found',
+      "TICKET_TYPE_NOT_FOUND",
+      "Ticket type was not found",
     );
   }
 }
@@ -356,7 +305,7 @@ export async function createReservation(
           id: ticketTypeId,
           eventId,
           reservedCount: { lt: transaction.ticketType.fields.capacity },
-          event: { status: 'PUBLISHED' },
+          event: { status: "PUBLISHED" },
         },
         data: { reservedCount: { increment: 1 } },
       });
@@ -379,7 +328,7 @@ export async function createReservation(
             create: {
               publicId,
               qrCodeDataUrl,
-              status: 'READY',
+              status: "READY",
             },
           },
         },
@@ -389,10 +338,7 @@ export async function createReservation(
       return reservation.id;
     });
 
-    const reservation = await prisma.reservation.findUniqueOrThrow({
-      where: { id: reservationId },
-      include: reservationInclude,
-    });
+    const reservation = await ticketingModel.findReservationById(reservationId);
 
     return { created: true, reservation: decorateReservation(reservation) };
   } catch (error) {
@@ -415,53 +361,39 @@ export async function createReservation(
 }
 
 export async function listReservations(userId: string) {
-  const reservations = await prisma.reservation.findMany({
-    where: { userId },
-    include: reservationInclude,
-    orderBy: { createdAt: 'desc' },
-  });
+  const reservations = await ticketingModel.listReservations(userId);
 
   return reservations.map(decorateReservation);
 }
 
 export async function listTickets(userId: string) {
-  const tickets = await prisma.ticket.findMany({
-    where: { reservation: { userId } },
-    include: ticketInclude,
-    orderBy: { createdAt: 'desc' },
-  });
+  const tickets = await ticketingModel.listTickets(userId);
 
   return tickets.map(decorateTicket);
 }
 
 export async function getTicket(ticketId: string, userId: string) {
-  const ticket = await prisma.ticket.findFirst({
-    where: { id: ticketId, reservation: { userId } },
-    include: ticketInclude,
-  });
+  const ticket = await ticketingModel.findTicket(ticketId, userId);
 
   if (!ticket) {
-    throw new AppError(404, 'TICKET_NOT_FOUND', 'Ticket was not found');
+    throw new AppError(404, "TICKET_NOT_FOUND", "Ticket was not found");
   }
 
   return decorateTicket(ticket);
 }
 
 export async function getTicketQr(ticketId: string, userId: string) {
-  const ticket = await prisma.ticket.findFirst({
-    where: { id: ticketId, reservation: { userId } },
-    select: { publicId: true, qrCodeDataUrl: true },
-  });
+  const ticket = await ticketingModel.findTicketQr(ticketId, userId);
 
   if (!ticket) {
-    throw new AppError(404, 'TICKET_NOT_FOUND', 'Ticket was not found');
+    throw new AppError(404, "TICKET_NOT_FOUND", "Ticket was not found");
   }
 
   if (!ticket.qrCodeDataUrl) {
     throw new AppError(
       409,
-      'TICKET_QR_NOT_READY',
-      'Ticket QR code is not ready',
+      "TICKET_QR_NOT_READY",
+      "Ticket QR code is not ready",
     );
   }
 
@@ -488,21 +420,21 @@ export async function createCheckIn(
     if (!ticket) {
       throw new AppError(
         404,
-        'TICKET_NOT_FOUND',
-        'Ticket was not found for this event',
+        "TICKET_NOT_FOUND",
+        "Ticket was not found for this event",
       );
     }
 
     const consumed = await transaction.ticket.updateMany({
-      where: { id: ticket.id, status: 'READY' },
-      data: { status: 'USED' },
+      where: { id: ticket.id, status: "READY" },
+      data: { status: "USED" },
     });
 
     if (consumed.count !== 1) {
       throw new AppError(
         409,
-        'TICKET_ALREADY_USED',
-        'Ticket has already been used',
+        "TICKET_ALREADY_USED",
+        "Ticket has already been used",
       );
     }
 
@@ -518,35 +450,14 @@ export async function createCheckIn(
     return checkIn.id;
   });
 
-  return prisma.checkIn.findUniqueOrThrow({
-    where: { id: checkInId },
-    include: checkInInclude,
-  });
+  return ticketingModel.findCheckInById(checkInId);
 }
 
 export async function listCheckIns(eventId: string, operator: Principal) {
   await requireCheckInAccess(eventId, operator);
 
-  return prisma.checkIn.findMany({
-    where: { eventId },
-    include: checkInInclude,
-    orderBy: { checkedInAt: 'desc' },
-  });
+  return ticketingModel.listCheckIns(eventId);
 }
-
-const checkInInclude = {
-  checkedInBy: { select: { id: true, name: true } },
-  ticket: {
-    include: {
-      reservation: {
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          ticketType: true,
-        },
-      },
-    },
-  },
-} satisfies Prisma.CheckInInclude;
 
 function canViewEvent(
   status: EventStatus,
@@ -554,24 +465,26 @@ function canViewEvent(
   principal?: Principal,
 ): boolean {
   return (
-    status === 'PUBLISHED' ||
-    principal !== undefined && canManageEvent(principal, organizerId)
+    status === "PUBLISHED" ||
+    (principal !== undefined && canManageEvent(principal, organizerId))
   );
 }
 
 async function requireOwnedEvent(
   eventId: string,
   principal: Principal,
-  client: Prisma.TransactionClient | typeof prisma = prisma,
+  transaction?: Prisma.TransactionClient,
 ) {
-  const event = await client.event.findUnique({ where: { id: eventId } });
+  const event = transaction
+    ? await transaction.event.findUnique({ where: { id: eventId } })
+    : await ticketingModel.findEventForManagement(eventId);
 
   if (!event) {
-    throw new AppError(404, 'EVENT_NOT_FOUND', 'Event was not found');
+    throw new AppError(404, "EVENT_NOT_FOUND", "Event was not found");
   }
 
   if (!canManageEvent(principal, event.organizerId)) {
-    throw new AppError(403, 'FORBIDDEN', 'You do not own this event');
+    throw new AppError(403, "FORBIDDEN", "You do not own this event");
   }
 
   return event;
@@ -579,7 +492,7 @@ async function requireOwnedEvent(
 
 async function requireDraftOwnedEvent(eventId: string, principal: Principal) {
   const event = await requireOwnedEvent(eventId, principal);
-  if (event.status !== 'DRAFT') {
+  if (event.status !== "DRAFT") {
     throw eventLocked();
   }
 
@@ -587,20 +500,17 @@ async function requireDraftOwnedEvent(eventId: string, principal: Principal) {
 }
 
 async function requireCheckInAccess(eventId: string, operator: Principal) {
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { organizerId: true },
-  });
+  const event = await ticketingModel.findEventOwner(eventId);
 
   if (!event) {
-    throw new AppError(404, 'EVENT_NOT_FOUND', 'Event was not found');
+    throw new AppError(404, "EVENT_NOT_FOUND", "Event was not found");
   }
 
   if (!canManageEvent(operator, event.organizerId)) {
     throw new AppError(
       403,
-      'FORBIDDEN',
-      'You cannot manage check-ins for this event',
+      "FORBIDDEN",
+      "You cannot manage check-ins for this event",
     );
   }
 }
@@ -615,11 +525,11 @@ async function throwReservationAvailabilityError(
     select: { status: true },
   });
 
-  if (!event || event.status !== 'PUBLISHED') {
+  if (!event || event.status !== "PUBLISHED") {
     throw new AppError(
       409,
-      'EVENT_NOT_AVAILABLE',
-      'Event is not available for reservations',
+      "EVENT_NOT_AVAILABLE",
+      "Event is not available for reservations",
     );
   }
 
@@ -631,19 +541,16 @@ async function throwReservationAvailabilityError(
   if (!ticketType) {
     throw new AppError(
       404,
-      'TICKET_TYPE_NOT_FOUND',
-      'Ticket type was not found',
+      "TICKET_TYPE_NOT_FOUND",
+      "Ticket type was not found",
     );
   }
 
-  throw new AppError(409, 'TICKET_TYPE_SOLD_OUT', 'Ticket type is sold out');
+  throw new AppError(409, "TICKET_TYPE_SOLD_OUT", "Ticket type is sold out");
 }
 
 function findReservationByKey(userId: string, idempotencyKey: string) {
-  return prisma.reservation.findUnique({
-    where: { userId_idempotencyKey: { userId, idempotencyKey } },
-    include: reservationInclude,
-  });
+  return ticketingModel.findReservationByKey(userId, idempotencyKey);
 }
 
 function resolveReservationReplay<
@@ -659,8 +566,8 @@ function resolveReservationReplay<
   ) {
     throw new AppError(
       409,
-      'IDEMPOTENCY_KEY_REUSED',
-      'Idempotency key was already used for another reservation',
+      "IDEMPOTENCY_KEY_REUSED",
+      "Idempotency key was already used for another reservation",
     );
   }
 
@@ -683,16 +590,16 @@ function decorateTicket<Ticket extends { publicId: string }>(ticket: Ticket) {
 function eventLocked(): AppError {
   return new AppError(
     409,
-    'EVENT_NOT_DRAFT',
-    'Only draft events can be modified',
+    "EVENT_NOT_DRAFT",
+    "Only draft events can be modified",
   );
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    error.code === 'P2002'
+    "code" in error &&
+    error.code === "P2002"
   );
 }
