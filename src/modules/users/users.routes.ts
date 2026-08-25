@@ -1,26 +1,16 @@
 import { Router } from "express";
 
-import { authenticate, requireRole } from "../../middleware/auth.middleware.js";
 import {
   assignRoleController,
   getCurrentUserController,
   listUsersController,
 } from "./users.controller.js";
+import { adminOnly, authenticated } from "./users.middleware.js";
 
 export const usersRouter = Router();
 
-usersRouter.get("/me", authenticate, getCurrentUserController);
+usersRouter.get("/me", ...authenticated, getCurrentUserController);
 
-usersRouter.get(
-  "/users",
-  authenticate,
-  requireRole("ADMIN"),
-  listUsersController,
-);
+usersRouter.get("/users", ...adminOnly, listUsersController);
 
-usersRouter.patch(
-  "/users/:userId/role",
-  authenticate,
-  requireRole("ADMIN"),
-  assignRoleController,
-);
+usersRouter.patch("/users/:userId/role", ...adminOnly, assignRoleController);

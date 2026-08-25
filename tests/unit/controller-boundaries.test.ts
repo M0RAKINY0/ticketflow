@@ -8,10 +8,6 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../../src/config/env.js";
-import {
-  authenticate,
-  authenticateOptional,
-} from "../../src/middleware/auth.middleware.js";
 import { errorHandler } from "../../src/middleware/error.middleware.js";
 import {
   loginController,
@@ -43,12 +39,21 @@ import {
   updateEventController,
   updateTicketTypeController,
 } from "../../src/modules/ticketing/ticketing.controller.js";
+import {
+  authenticated as ticketingAuthenticated,
+  authenticatedUserOnly,
+  optionalAuthentication,
+} from "../../src/modules/ticketing/ticketing.middleware.js";
 import { ticketingRouter } from "../../src/modules/ticketing/ticketing.routes.js";
 import {
   assignRoleController,
   getCurrentUserController,
   listUsersController,
 } from "../../src/modules/users/users.controller.js";
+import {
+  adminOnly,
+  authenticated as usersAuthenticated,
+} from "../../src/modules/users/users.middleware.js";
 import { usersRouter } from "../../src/modules/users/users.routes.js";
 import { AppError } from "../../src/shared/errors.js";
 import { success } from "../../src/shared/response.js";
@@ -302,25 +307,20 @@ describe("auth and users routes", () => {
     ]);
   });
 
-  it("keeps authentication and admin-role enforcement before protected user controllers", async () => {
+  it("keeps complete feature access chains before protected user controllers", async () => {
     expect(routeHandlers(usersRouter, "/me", "get")).toEqual([
-      authenticate,
+      ...usersAuthenticated,
       getCurrentUserController,
     ]);
 
-    const listHandlers = routeHandlers(usersRouter, "/users", "get");
-    const roleHandlers = routeHandlers(
-      usersRouter,
-      "/users/:userId/role",
-      "patch",
-    );
-
-    expect(listHandlers).toHaveLength(3);
-    expect(listHandlers[0]).toBe(authenticate);
-    expect(listHandlers[2]).toBe(listUsersController);
-    expect(roleHandlers).toHaveLength(3);
-    expect(roleHandlers[0]).toBe(authenticate);
-    expect(roleHandlers[2]).toBe(assignRoleController);
+    expect(routeHandlers(usersRouter, "/users", "get")).toEqual([
+      ...adminOnly,
+      listUsersController,
+    ]);
+    expect(routeHandlers(usersRouter, "/users/:userId/role", "patch")).toEqual([
+      ...adminOnly,
+      assignRoleController,
+    ]);
 
     const app = express();
     app.use(usersRouter);
@@ -356,54 +356,78 @@ describe("ticketing controllers and routes", () => {
   const userToken = signAccessToken({ id: userId, role: "USER" });
 
   it.each([
-    ["get", "/events", [authenticateOptional, listEventsController]],
-    ["get", "/events/:eventId", [authenticateOptional, getEventController]],
-    ["post", "/events", [authenticate, createEventController]],
-    ["patch", "/events/:eventId", [authenticate, updateEventController]],
+    ["get", "/events", [...optionalAuthentication, listEventsController]],
+    [
+      "get",
+      "/events/:eventId",
+      [...optionalAuthentication, getEventController],
+    ],
+    ["post", "/events", [...ticketingAuthenticated, createEventController]],
+    [
+      "patch",
+      "/events/:eventId",
+      [...ticketingAuthenticated, updateEventController],
+    ],
     [
       "post",
       "/events/:eventId/publish",
-      [authenticate, publishEventController],
+      [...ticketingAuthenticated, publishEventController],
     ],
-    ["post", "/events/:eventId/cancel", [authenticate, cancelEventController]],
+    [
+      "post",
+      "/events/:eventId/cancel",
+      [...ticketingAuthenticated, cancelEventController],
+    ],
     [
       "get",
       "/events/:eventId/ticket-types",
-      [authenticateOptional, listTicketTypesController],
+      [...optionalAuthentication, listTicketTypesController],
     ],
     [
       "post",
       "/events/:eventId/ticket-types",
-      [authenticate, createTicketTypeController],
+      [...ticketingAuthenticated, createTicketTypeController],
     ],
     [
       "patch",
       "/events/:eventId/ticket-types/:ticketTypeId",
-      [authenticate, updateTicketTypeController],
+      [...ticketingAuthenticated, updateTicketTypeController],
     ],
     [
       "delete",
       "/events/:eventId/ticket-types/:ticketTypeId",
-      [authenticate, deleteTicketTypeController],
+      [...ticketingAuthenticated, deleteTicketTypeController],
     ],
     [
       "post",
       "/events/:eventId/reservations",
-      [authenticate, expect.any(Function), createReservationController],
+      [...authenticatedUserOnly, createReservationController],
     ],
-    ["get", "/me/reservations", [authenticate, listReservationsController]],
-    ["get", "/me/tickets", [authenticate, listTicketsController]],
-    ["get", "/me/tickets/:ticketId/qr", [authenticate, getTicketQrController]],
-    ["get", "/me/tickets/:ticketId", [authenticate, getTicketController]],
+    [
+      "get",
+      "/me/reservations",
+      [...ticketingAuthenticated, listReservationsController],
+    ],
+    ["get", "/me/tickets", [...ticketingAuthenticated, listTicketsController]],
+    [
+      "get",
+      "/me/tickets/:ticketId/qr",
+      [...ticketingAuthenticated, getTicketQrController],
+    ],
+    [
+      "get",
+      "/me/tickets/:ticketId",
+      [...ticketingAuthenticated, getTicketController],
+    ],
     [
       "post",
       "/events/:eventId/check-ins",
-      [authenticate, createCheckInController],
+      [...ticketingAuthenticated, createCheckInController],
     ],
     [
       "get",
       "/events/:eventId/check-ins",
-      [authenticate, listCheckInsController],
+      [...ticketingAuthenticated, listCheckInsController],
     ],
   ])(
     "connects %s %s to its complete established handler chain",

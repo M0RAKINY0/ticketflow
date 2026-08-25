@@ -1,11 +1,6 @@
 import { Router } from "express";
 
 import {
-  authenticate,
-  authenticateOptional,
-  requireRole,
-} from "../../middleware/auth.middleware.js";
-import {
   cancelEventController,
   createCheckInController,
   createEventController,
@@ -24,88 +19,100 @@ import {
   updateEventController,
   updateTicketTypeController,
 } from "./ticketing.controller.js";
+import {
+  authenticated,
+  authenticatedUserOnly,
+  optionalAuthentication,
+} from "./ticketing.middleware.js";
 
 export const ticketingRouter = Router();
 
-ticketingRouter.get("/events", authenticateOptional, listEventsController);
+ticketingRouter.get("/events", ...optionalAuthentication, listEventsController);
 
 ticketingRouter.get(
   "/events/:eventId",
-  authenticateOptional,
+  ...optionalAuthentication,
   getEventController,
 );
 
-ticketingRouter.post("/events", authenticate, createEventController);
+ticketingRouter.post("/events", ...authenticated, createEventController);
 
-ticketingRouter.patch("/events/:eventId", authenticate, updateEventController);
+ticketingRouter.patch(
+  "/events/:eventId",
+  ...authenticated,
+  updateEventController,
+);
 
 ticketingRouter.post(
   "/events/:eventId/publish",
-  authenticate,
+  ...authenticated,
   publishEventController,
 );
 
 ticketingRouter.post(
   "/events/:eventId/cancel",
-  authenticate,
+  ...authenticated,
   cancelEventController,
 );
 
 ticketingRouter.get(
   "/events/:eventId/ticket-types",
-  authenticateOptional,
+  ...optionalAuthentication,
   listTicketTypesController,
 );
 
 ticketingRouter.post(
   "/events/:eventId/ticket-types",
-  authenticate,
+  ...authenticated,
   createTicketTypeController,
 );
 
 ticketingRouter.patch(
   "/events/:eventId/ticket-types/:ticketTypeId",
-  authenticate,
+  ...authenticated,
   updateTicketTypeController,
 );
 
 ticketingRouter.delete(
   "/events/:eventId/ticket-types/:ticketTypeId",
-  authenticate,
+  ...authenticated,
   deleteTicketTypeController,
 );
 
 ticketingRouter.post(
   "/events/:eventId/reservations",
-  authenticate,
-  requireRole("USER"),
+  ...authenticatedUserOnly,
   createReservationController,
 );
 
 ticketingRouter.get(
   "/me/reservations",
-  authenticate,
+  ...authenticated,
   listReservationsController,
 );
 
-ticketingRouter.get("/me/tickets", authenticate, listTicketsController);
+ticketingRouter.get("/me/tickets", ...authenticated, listTicketsController);
 
 ticketingRouter.get(
   "/me/tickets/:ticketId/qr",
-  authenticate,
+  ...authenticated,
   getTicketQrController,
 );
 
-ticketingRouter.get("/me/tickets/:ticketId", authenticate, getTicketController);
+ticketingRouter.get(
+  "/me/tickets/:ticketId",
+  ...authenticated,
+  getTicketController,
+);
 
 ticketingRouter.post(
   "/events/:eventId/check-ins",
-  authenticate,
+  ...authenticated,
   createCheckInController,
 );
 
 ticketingRouter.get(
   "/events/:eventId/check-ins",
-  authenticate,
+  ...authenticated,
   listCheckInsController,
 );
