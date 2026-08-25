@@ -208,7 +208,7 @@ describe('authentication and role authorization', () => {
   it('maps oversized JSON to a stable 413 error without parser internals', async () => {
     const response = await request(createApp())
       .post('/api/v1/auth/login')
-      .send({ email: 'x'.repeat(110_000) });
+      .send({ email: 'x'.repeat(1_100_000) });
 
     expect(response.status).toBe(413);
     expect(response.body).toEqual({
