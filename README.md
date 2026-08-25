@@ -56,6 +56,8 @@ npm run build
 npm run format:check
 ```
 
+Pull requests targeting `main` run the full test suite, type checking, and production build in GitHub Actions. CI starts an isolated PostgreSQL service and applies all Prisma migrations before running tests.
+
 ## HTTP composition
 
 `src/app.ts` installs cookie parsing, JSON parsing, the root router, and the error handler. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared authentication and error handling live in `src/middleware/`.
