@@ -67,7 +67,7 @@ Auth, users, and ticketing live under `src/modules/`. Each feature has a clear j
 - Route files declare endpoint paths and attach authentication or role middleware. They call controllers and do not call services directly.
 - Controllers translate HTTP requests into feature calls. They validate input with the feature schemas, choose status codes, manage cookies where needed, and return the standard response envelopes.
 - Services enforce business rules and coordinate work. Ticketing services keep publication, reservation, and check-in transaction callbacks here because those operations depend on related conditional writes succeeding together.
-- Models own runtime database access. They contain the feature's reusable Prisma reads and writes and accept an existing Prisma transaction client when a service needs them inside a transaction.
+- Models own standalone Prisma operations. `ticketingModel` uses the root Prisma client, while ticketing service callbacks keep their direct transaction-client reads and writes for conditional operations.
 - Schemas define and parse each feature's request data. They stay next to the feature that uses them.
 - Middleware handles shared cross-cutting HTTP work such as bearer-token authentication, role checks, and error responses.
 
