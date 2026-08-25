@@ -3,4 +3,9 @@ dist
 # Keep environment variables out of version control
 .env
 
+/src/generated/prisma
 /generated/prisma
+/dist
+/storage
+/.superpowers/
+/.worktrees/

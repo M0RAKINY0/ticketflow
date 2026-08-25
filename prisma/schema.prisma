@@ -1,13 +1,168 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+enum EventCategory {
+  MUSIC
+  BUSINESS
+  TECHNOLOGY
+  ARTS_CULTURE
+  FOOD_DRINK
+  SPORTS_FITNESS
+  COMMUNITY
+  EDUCATION
+  OTHER
+}
+
+enum ReservationStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum TicketStatus {
+  PENDING
+  READY
+  USED
+  VOID
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  email         String         @unique
+  name          String
+  passwordHash  String
+  phoneNumber   String
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  events        Event[]        @relation("EventOrganizer")
+  reservations  Reservation[]
+  checkIns      CheckIn[]      @relation("CheckInOperator")
+  refreshTokens RefreshToken[]
+
+  @@index([role])
+}
+
+model Event {
+  id            String        @id @default(uuid()) @db.Uuid
+  title         String
+  description   String
+  startsAt      DateTime      @db.Timestamptz(3)
+  endsAt        DateTime      @db.Timestamptz(3)
+  venue         String
+  category      EventCategory
+  coverImageUrl String?
+  city          String
+  countryCode   String        @db.Char(2)
+  currency      String        @db.Char(3)
+  timezone      String
+  status        EventStatus   @default(DRAFT)
+  organizerId   String        @db.Uuid
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  organizer     User          @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  ticketTypes   TicketType[]
+  reservations  Reservation[]
+  checkIns      CheckIn[]
+
+  @@index([organizerId])
+  @@index([status, startsAt])
+  @@index([status, category, startsAt])
+  @@index([status, countryCode, startsAt])
+}
+
+model TicketType {
+  id            String        @id @default(uuid()) @db.Uuid
+  eventId       String        @db.Uuid
+  name          String
+  description   String?
+  price         Decimal       @db.Decimal(12, 2)
+  capacity      Int
+  reservedCount Int           @default(0)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  event         Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  reservations  Reservation[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+}
+
+model Reservation {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String            @db.Uuid
+  eventId        String            @db.Uuid
+  ticketTypeId   String            @db.Uuid
+  idempotencyKey String
+  status         ReservationStatus @default(CONFIRMED)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType     TicketType        @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  ticket         Ticket?
+
+  @@unique([userId, idempotencyKey])
+  @@index([eventId])
+  @@index([ticketTypeId])
+}
+
+model Ticket {
+  id            String       @id @default(uuid()) @db.Uuid
+  reservationId String       @unique @db.Uuid
+  publicId      String       @unique
+  status        TicketStatus @default(PENDING)
+  qrLocation    String?
+  qrCodeDataUrl String?
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  reservation   Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  checkIn       CheckIn?
+}
+
+model CheckIn {
+  id            String   @id @default(uuid()) @db.Uuid
+  ticketId      String   @unique @db.Uuid
+  eventId       String   @db.Uuid
+  checkedInById String   @db.Uuid
+  checkedInAt   DateTime @default(now()) @db.Timestamptz(3)
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  checkedInBy   User     @relation("CheckInOperator", fields: [checkedInById], references: [id], onDelete: Cascade)
+
+  @@index([eventId, checkedInAt])
+  @@index([checkedInById])
+}
+
+model RefreshToken {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @db.Uuid
+  tokenHash    String        @unique
+  expiresAt    DateTime      @db.Timestamptz(3)
+  revokedAt    DateTime?     @db.Timestamptz(3)
+  replacedById String?       @unique @db.Uuid
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy   RefreshToken? @relation("RefreshTokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces     RefreshToken? @relation("RefreshTokenRotation")
+
+  @@index([userId])
+  @@index([expiresAt])
 }

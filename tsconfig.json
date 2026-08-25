@@ -1,8 +1,7 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
-    // File Layout
-    "rootDir": ".",
+    "rootDir": "./src",
     "outDir": "./dist",
 
     // Environment Settings
@@ -10,10 +9,6 @@
     "module": "nodenext",
     "target": "esnext",
     "types": ["node"],
-    // For nodejs:
-    // "lib": ["esnext"],
-    // "types": ["node"],
-    // and npm install -D @types/node
 
     // Other Outputs
     "sourceMap": true,
@@ -34,13 +29,12 @@
 
     // Recommended Options
     "strict": true,
-    "jsx": "react-jsx",
-    //"verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true
   },
-  "include": ["app.ts", "config.ts", "server.ts", "test/**/*.ts"],
-  "exclude": ["dist", "node_modules", "generated"]
+  "include": ["src"],
+  "exclude": ["dist", "node_modules", "generated", "tests", "vitest.config.ts"]
 }
