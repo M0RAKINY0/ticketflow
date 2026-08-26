@@ -43,18 +43,20 @@ enum TicketStatus {
 }
 
 model User {
-  id            String         @id @default(uuid()) @db.Uuid
-  email         String         @unique
+  id            String        @id @default(uuid()) @db.Uuid
+  email         String        @unique
+  emailVerified Boolean       @default(false)
   name          String
-  passwordHash  String
-  phoneNumber   String
-  role          Role           @default(USER)
-  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
-  events        Event[]        @relation("EventOrganizer")
+  image         String?
+  phoneNumber   String?
+  role          Role          @default(USER)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  accounts      Account[]
+  sessions      Session[]
+  events        Event[]       @relation("EventOrganizer")
   reservations  Reservation[]
-  checkIns      CheckIn[]      @relation("CheckInOperator")
-  refreshTokens RefreshToken[]
+  checkIns      CheckIn[]     @relation("CheckInOperator")
 
   @@index([role])
 }
@@ -150,19 +152,58 @@ model CheckIn {
   @@index([checkedInById])
 }
 
-model RefreshToken {
-  id           String        @id @default(uuid()) @db.Uuid
-  userId       String        @db.Uuid
-  tokenHash    String        @unique
-  expiresAt    DateTime      @db.Timestamptz(3)
-  revokedAt    DateTime?     @db.Timestamptz(3)
-  replacedById String?       @unique @db.Uuid
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replacedBy   RefreshToken? @relation("RefreshTokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
-  replaces     RefreshToken? @relation("RefreshTokenRotation")
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  expiresAt DateTime @db.Timestamptz(3)
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  ipAddress String?
+  userAgent String?
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([expiresAt])
+}
+
+model Account {
+  id                    String    @id @default(uuid()) @db.Uuid
+  issuer                String
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+}
+
+model Jwks {
+  id         String    @id @default(uuid()) @db.Uuid
+  publicKey  String
+  privateKey String
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime? @db.Timestamptz(3)
+  alg        String?
+  crv        String?
 }

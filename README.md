@@ -1,12 +1,12 @@
 # Ventra Ticketing
 
-This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
+This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, and Better Auth. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
 The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. There is no Redis, job worker, payment system, Docker, or Nginx layer.
 
 ## Capabilities
 
-- Public registration, login, refresh-token rotation, logout, and access JWTs.
+- Email and password authentication, Google OAuth, database sessions, and short-lived JWTs.
 - Two account types: `USER` and `ADMIN`.
 - Authenticated users own the events they create; admins can manage every event and user.
 - Paginated public discovery of upcoming published events by search, category, date, and country.
@@ -36,9 +36,12 @@ HOST=127.0.0.1
 FRONTEND_ORIGINS=http://localhost:5173
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=100
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ventra
-ACCESS_TOKEN_SECRET=replace-with-at-least-32-characters
-REFRESH_TOKEN_SECRET=replace-with-at-least-32-characters
+DATABASE_URL=postgresql://ventra:ventra@localhost:5432/ventra
+BETTER_AUTH_SECRET=replace-with-at-least-32-characters
+BETTER_AUTH_URL=http://localhost:4000
+GOOGLE_CLIENT_ID=replace-with-google-client-id
+GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
+TICKET_QR_SECRET=replace-with-at-least-32-characters
 ```
 
 For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test mode rejects a test URL that is missing or equal to `DATABASE_URL`.
@@ -64,18 +67,18 @@ Pull requests targeting `main` run the full test suite, type checking, and produ
 
 ## HTTP composition
 
-`src/app.ts` installs secure headers, the browser-origin allowlist, request throttling, cookie parsing, size-limited JSON parsing, the root router, and safe error responses. `src/server.ts` sets explicit HTTP timeouts. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared HTTP security, authentication, and error handling live in `src/middleware/`.
+`src/app.ts` installs secure headers, the browser-origin allowlist, request throttling, the Better Auth handler, cookie parsing, size-limited JSON parsing, the root router, and safe error responses. The Better Auth handler runs before the JSON parser so it can read the original request body. `src/server.ts` sets explicit HTTP timeouts. `src/routes/index.ts` mounts health, users, and ticketing routes. Shared HTTP security, authentication, and error handling live in `src/middleware/`.
 
 ## MVC module boundaries
 
-Auth, users, and ticketing live under `src/modules/`. Each feature has a clear job at every layer:
+Users and ticketing live under `src/modules/`. Better Auth owns authentication endpoints through `src/infrastructure/auth.ts`. Each Ventra feature has a clear job at every layer:
 
 - Route files declare endpoint paths and spread feature middleware arrays before controllers. They call controllers and do not call services directly.
 - Controllers translate HTTP requests into feature calls. They validate input with the feature schemas, choose status codes, manage cookies where needed, and return the standard response envelopes.
 - Services enforce business rules and coordinate work. Ticketing services keep publication, reservation, and check-in transaction callbacks here because those operations depend on related conditional writes succeeding together.
 - Models own standalone Prisma operations. `ticketingModel` uses the root Prisma client, while ticketing service callbacks keep their direct transaction-client reads and writes for conditional operations.
 - Schemas define and parse each feature's request data. They stay next to the feature that uses them.
-- Feature middleware composes shared authentication and role checks into feature access chains. Shared middleware handles bearer-token parsing, authentication, role checks, and error responses.
+- Feature middleware composes shared authentication and role checks into feature access chains. Shared middleware accepts Better Auth session cookies or JWT bearer tokens and applies Ventra role checks.
 
 Prisma's database schema and migrations remain under `prisma/`. Feature model files use the generated Prisma client at runtime; they do not replace the schema or migrations.
 
@@ -83,12 +86,18 @@ Prisma's database schema and migrations remain under `prisma/`. Feature model fi
 
 Authentication endpoints are under `/api/v1/auth`:
 
-- `POST /register`
-- `POST /login`
-- `POST /refresh`
-- `POST /logout`
+- `POST /sign-up/email`
+- `POST /sign-in/email`
+- `POST /sign-in/social`
+- `GET /callback/google`
+- `GET /get-session`
+- `POST /sign-out`
+- `GET /token`
+- `GET /jwks`
 
-Public registration always creates a `USER`, regardless of extra fields in the request. Registration and login return the access token and public user in JSON; access tokens are sent as `Authorization: Bearer <token>`. The refresh credential is an opaque token issued only in the `ventra_refresh` cookie with `HttpOnly`, `SameSite=Lax`, a 30-day lifetime, an auth-scoped path, and `Secure` in production. Refresh rotates that cookie without a JSON body, and logout revokes and clears it.
+Public registration always creates a `USER`, even if the request supplies a role. Password hashes live only in Better Auth `Account` rows. Google uses `http://localhost:4000/api/v1/auth/callback/google` during development. Browser clients authenticate with Better Auth's HTTP-only session cookie. An authenticated session may request a 15-minute JWT from `/token`; API clients send it as `Authorization: Bearer <token>`. Protected Ventra routes accept either credential.
+
+`phoneNumber` is optional. Better Auth sessions last 30 days and update their activity timestamp once per day. Production cookies use `Secure`. Google and Better Auth secrets belong in `.env` or the deployment secret manager and must never be committed.
 
 Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration.
 

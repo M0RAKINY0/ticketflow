@@ -3,12 +3,7 @@ import { AppError } from "../../shared/errors.js";
 import { usersModel } from "./users.model.js";
 
 type AssignableRole = "USER" | "ADMIN";
-type PublicUser = Omit<User, "passwordHash">;
-
-function toPublicUser(user: User): PublicUser {
-  const { passwordHash: _passwordHash, ...publicUser } = user;
-  return publicUser;
-}
+type PublicUser = User;
 
 export async function getCurrentUser(userId: string): Promise<PublicUser> {
   const user = await usersModel.findById(userId);
@@ -17,7 +12,7 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
     throw new AppError(404, "USER_NOT_FOUND", "User not found");
   }
 
-  return toPublicUser(user);
+  return user;
 }
 
 export async function assignRole(
@@ -30,7 +25,7 @@ export async function assignRole(
     throw new AppError(404, "USER_NOT_FOUND", "User not found");
   }
 
-  return toPublicUser(await usersModel.updateRole(userId, role));
+  return usersModel.updateRole(userId, role);
 }
 
 export async function listUsers(input: {

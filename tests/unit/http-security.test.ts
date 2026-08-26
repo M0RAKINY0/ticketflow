@@ -16,8 +16,11 @@ const config: Env = {
   RATE_LIMIT_MAX: 100,
   DATABASE_URL: "postgresql://user:password@localhost:5432/ventra_test",
   TEST_DATABASE_URL: "postgresql://user:password@localhost:5432/ventra_test",
-  ACCESS_TOKEN_SECRET: "a".repeat(32),
-  REFRESH_TOKEN_SECRET: "b".repeat(32),
+  BETTER_AUTH_SECRET: "a".repeat(32),
+  BETTER_AUTH_URL: "http://localhost:4001",
+  GOOGLE_CLIENT_ID: "test-google-client-id",
+  GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+  TICKET_QR_SECRET: "b".repeat(32),
 };
 
 describe("HTTP security", () => {
@@ -32,6 +35,7 @@ describe("HTTP security", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(
       "http://localhost:5173",
     );
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
   });
 
   it("rejects unknown browser origins", async () => {
