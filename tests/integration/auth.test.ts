@@ -1,12 +1,16 @@
-import bcrypt from 'bcrypt';
-import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import request from "supertest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { decodeJwt, generateKeyPair, SignJWT } from "jose";
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { jwt } from "better-auth/plugins";
 
-import { createApp } from '../../src/app.js';
-import { prisma } from '../../src/infrastructure/prisma.js';
+import { createApp } from "../../src/app.js";
+import { auth } from "../../src/infrastructure/auth.js";
+import { prisma } from "../../src/infrastructure/prisma.js";
 
-const AUTH_TEST_EMAIL_PREFIX = 'auth-test-';
-const password = 'Correct-Horse-42';
+const AUTH_TEST_EMAIL_PREFIX = "auth-test-";
+const password = "Correct-Horse-42";
 
 afterEach(async () => {
   await prisma.user.deleteMany({
@@ -14,229 +18,231 @@ afterEach(async () => {
   });
 });
 
-async function registerUser(email: string) {
-  return request(createApp()).post('/api/v1/auth/register').send({
-    email,
-    name: 'Guest User',
-    phoneNumber: '+2348000000000',
-    password,
-    role: 'ADMIN',
-  });
+async function signUp(email: string, body: Record<string, unknown> = {}) {
+  return request(createApp())
+    .post("/api/v1/auth/sign-up/email")
+    .send({ email, name: "Guest User", password, ...body });
 }
 
-function refreshCookie(response: request.Response): string {
-  const header = response.headers['set-cookie'];
+function sessionCookie(response: request.Response): string {
+  const header = response.headers["set-cookie"];
   const value = Array.isArray(header) ? header[0] : header;
 
-  if (!value) throw new Error('Expected a refresh cookie');
-  return value.split(';', 1)[0]!;
+  if (!value) throw new Error("Expected a Better Auth session cookie");
+  return value.split(";", 1)[0]!;
 }
 
-describe('authentication and role authorization', () => {
-  it('ignores a role supplied by a public registrant and never returns the password hash', async () => {
-    const email = `${AUTH_TEST_EMAIL_PREFIX}guest@example.com`;
-    const response = await registerUser(email);
+describe("Better Auth", () => {
+  it("creates a USER with optional phone number and stores the password only in Account", async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}signup@example.com`;
+    const response = await signUp(email);
     const storedUser = await prisma.user.findUniqueOrThrow({
       where: { email },
+      include: { accounts: true },
     });
 
-    expect(response.status).toBe(201);
-    expect(response.body.data.user.role).toBe('USER');
-    expect(response.body.data).toHaveProperty('accessToken');
-    expect(response.body.data).not.toHaveProperty('refreshToken');
-    expect(response.headers['set-cookie']?.[0]).toContain('ventra_refresh=');
-    expect(response.headers['set-cookie']?.[0]).toContain('HttpOnly');
-    expect(response.headers['set-cookie']?.[0]).toContain('SameSite=Lax');
-    expect(response.headers['set-cookie']?.[0]).toContain('Path=/api/v1/auth');
-    expect(response.headers['set-cookie']?.[0]).toContain('Max-Age=2592000');
-    expect(JSON.stringify(response.body)).not.toContain('passwordHash');
-    expect(await bcrypt.getRounds(storedUser.passwordHash)).toBe(12);
+    expect(response.status).toBe(200);
+    expect(response.body.user).toMatchObject({ email, role: "USER" });
+    expect(response.body.user.phoneNumber).toBeNull();
+    expect(JSON.stringify(response.body)).not.toContain("password");
+    expect(storedUser.accounts).toHaveLength(1);
+    expect(storedUser.accounts[0]?.providerId).toBe("credential");
+    expect(storedUser.accounts[0]?.password).toBeTruthy();
   });
 
-  it('returns 401 for invalid credentials', async () => {
-    await registerUser(`${AUTH_TEST_EMAIL_PREFIX}bad-login@example.com`);
+  it("ignores a role supplied by a public registrant", async () => {
+    const response = await signUp(`${AUTH_TEST_EMAIL_PREFIX}role@example.com`, {
+      role: "ADMIN",
+    });
 
-    const response = await request(createApp())
-      .post('/api/v1/auth/login')
-      .send({
-        email: `${AUTH_TEST_EMAIL_PREFIX}bad-login@example.com`,
-        password: 'not-the-right-password',
-      });
-
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
+    expect(response.body.user.role).toBe("USER");
+    expect(
+      await prisma.user.findUniqueOrThrow({
+        where: { email: `${AUTH_TEST_EMAIL_PREFIX}role@example.com` },
+      }),
+    ).toMatchObject({ role: "USER" });
   });
 
-  it('does not expose a password hash from a successful login', async () => {
-    const email = `${AUTH_TEST_EMAIL_PREFIX}login@example.com`;
-    await registerUser(email);
+  it("signs in with email and creates a secure session", async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}signin@example.com`;
+    await signUp(email);
 
     const response = await request(createApp())
-      .post('/api/v1/auth/login')
+      .post("/api/v1/auth/sign-in/email")
       .send({ email, password });
 
     expect(response.status).toBe(200);
-    expect(JSON.stringify(response.body)).not.toContain('passwordHash');
+    expect(response.body.user.email).toBe(email);
+    expect(response.headers["set-cookie"]?.[0]).toContain("HttpOnly");
+    expect(response.headers["set-cookie"]?.[0]).toContain("SameSite=Lax");
   });
 
-  it('rotates refresh tokens and rejects a reused token', async () => {
-    const registration = await registerUser(
-      `${AUTH_TEST_EMAIL_PREFIX}refresh@example.com`,
+  it("returns a session and signs it out", async () => {
+    const registration = await signUp(
+      `${AUTH_TEST_EMAIL_PREFIX}session@example.com`,
     );
-    const firstRefreshCookie = refreshCookie(registration);
+    const cookie = sessionCookie(registration);
 
-    const refreshed = await request(createApp())
-      .post('/api/v1/auth/refresh')
-      .set('Cookie', firstRefreshCookie)
-      .send();
-    const secondRefreshCookie = refreshCookie(refreshed);
-    const reused = await request(createApp())
-      .post('/api/v1/auth/refresh')
-      .set('Cookie', firstRefreshCookie)
-      .send();
+    const active = await request(createApp())
+      .get("/api/v1/auth/get-session")
+      .set("Cookie", cookie);
+    const signedOut = await request(createApp())
+      .post("/api/v1/auth/sign-out")
+      .set("Cookie", cookie);
+    const ended = await request(createApp())
+      .get("/api/v1/auth/get-session")
+      .set("Cookie", cookie);
 
-    expect(refreshed.status).toBe(200);
-    expect(secondRefreshCookie).not.toBe(firstRefreshCookie);
-    expect(refreshed.body.data).not.toHaveProperty('refreshToken');
-    expect(JSON.stringify(refreshed.body)).not.toContain('passwordHash');
-    expect(reused.status).toBe(401);
-  });
-
-  it('rejects refresh without a valid cookie', async () => {
-    const missing = await request(createApp())
-      .post('/api/v1/auth/refresh')
-      .send();
-    const invalid = await request(createApp())
-      .post('/api/v1/auth/refresh')
-      .set('Cookie', 'ventra_refresh=invalid')
-      .send();
-
-    expect(missing.status).toBe(401);
-    expect(invalid.status).toBe(401);
-  });
-
-  it('authenticates profile requests and revokes refresh tokens on logout', async () => {
-    const registration = await registerUser(
-      `${AUTH_TEST_EMAIL_PREFIX}profile@example.com`,
+    expect(active.status).toBe(200);
+    expect(active.body.user.email).toBe(
+      `${AUTH_TEST_EMAIL_PREFIX}session@example.com`,
     );
-    const { accessToken } = registration.body.data as { accessToken: string };
-    const cookie = refreshCookie(registration);
-
-    const unauthenticated = await request(createApp()).get('/api/v1/me');
-    const profile = await request(createApp())
-      .get('/api/v1/me')
-      .set('Authorization', `Bearer ${accessToken}`);
-    const logout = await request(createApp())
-      .post('/api/v1/auth/logout')
-      .set('Cookie', cookie)
-      .send();
-    const refreshed = await request(createApp())
-      .post('/api/v1/auth/refresh')
-      .set('Cookie', cookie)
-      .send();
-
-    expect(unauthenticated.status).toBe(401);
-    expect(profile.status).toBe(200);
-    expect(profile.body.data.user.email).toBe(
-      `${AUTH_TEST_EMAIL_PREFIX}profile@example.com`,
-    );
-    expect(JSON.stringify(profile.body)).not.toContain('passwordHash');
-    expect(logout.status).toBe(204);
-    expect(logout.headers['set-cookie']?.[0]).toContain('ventra_refresh=;');
-    expect(refreshed.status).toBe(401);
+    expect(signedOut.status).toBe(200);
+    expect(ended.body).toBeNull();
   });
 
-  it('allows only admins to assign USER or ADMIN roles', async () => {
-    const target = await prisma.user.create({
-      data: {
-        email: `${AUTH_TEST_EMAIL_PREFIX}target@example.com`,
-        name: 'Target User',
-        phoneNumber: '+2348000000003',
-        passwordHash: await bcrypt.hash(password, 12),
-      },
-    });
-    await prisma.user.create({
-      data: {
-        email: `${AUTH_TEST_EMAIL_PREFIX}admin@example.com`,
-        name: 'Admin User',
-        phoneNumber: '+2348000000004',
-        passwordHash: await bcrypt.hash(password, 12),
-        role: 'ADMIN',
-      },
-    });
-    const userRegistration = await registerUser(
-      `${AUTH_TEST_EMAIL_PREFIX}member@example.com`,
-    );
-    const adminLogin = await request(createApp())
-      .post('/api/v1/auth/login')
-      .send({
-        email: `${AUTH_TEST_EMAIL_PREFIX}admin@example.com`,
-        password,
-      });
-
-    const forbidden = await request(createApp())
-      .patch(`/api/v1/users/${target.id}/role`)
-      .set('Authorization', `Bearer ${userRegistration.body.data.accessToken}`)
-      .send({ role: 'ADMIN' });
-    const changed = await request(createApp())
-      .patch(`/api/v1/users/${target.id}/role`)
-      .set('Authorization', `Bearer ${adminLogin.body.data.accessToken}`)
-      .send({ role: 'ADMIN' });
-    const adminRole = await request(createApp())
-      .patch(`/api/v1/users/${target.id}/role`)
-      .set('Authorization', `Bearer ${adminLogin.body.data.accessToken}`)
-      .send({ role: 'ORGANIZER' });
-
-    expect(forbidden.status).toBe(403);
-    expect(changed.status).toBe(200);
-    expect(changed.body.data.user.role).toBe('ADMIN');
-    expect(JSON.stringify(changed.body)).not.toContain('passwordHash');
-    expect(adminRole.status).toBe(400);
-  });
-
-  it('maps malformed JSON to a stable 400 error without parser internals', async () => {
-    const response = await request(createApp())
-      .post('/api/v1/auth/login')
-      .set('Content-Type', 'application/json')
-      .send('{"email":');
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: { code: 'INVALID_JSON', message: 'Invalid JSON body' },
-    });
-  });
-
-  it('maps oversized JSON to a stable 413 error without parser internals', async () => {
-    const response = await request(createApp())
-      .post('/api/v1/auth/login')
-      .send({ email: 'x'.repeat(1_100_000) });
-
-    expect(response.status).toBe(413);
-    expect(response.body).toEqual({
-      error: {
-        code: 'REQUEST_TOO_LARGE',
-        message: 'Request body is too large',
-      },
-    });
-  });
-
-  it('returns a conflict for one of two simultaneous registrations with the same email', async () => {
+  it("rejects invalid credentials and duplicate email signup", async () => {
     const email = `${AUTH_TEST_EMAIL_PREFIX}duplicate@example.com`;
+    await signUp(email);
 
-    const responses = await Promise.all([
-      registerUser(email),
-      registerUser(email),
-    ]);
+    const invalid = await request(createApp())
+      .post("/api/v1/auth/sign-in/email")
+      .send({ email, password: "wrong-password" });
+    const duplicate = await signUp(email);
 
-    expect(responses.map((response) => response.status).sort()).toEqual([
-      201, 409,
-    ]);
-    expect(responses.find((response) => response.status === 409)?.body).toEqual(
-      {
-        error: {
-          code: 'EMAIL_ALREADY_REGISTERED',
-          message: 'Email is already registered',
-        },
-      },
+    expect(invalid.status).toBe(401);
+    expect(duplicate.status).toBe(422);
+  });
+
+  it("builds a Google authorization URL with the configured callback", async () => {
+    const response = await request(createApp())
+      .post("/api/v1/auth/sign-in/social")
+      .send({ provider: "google", callbackURL: "http://localhost:5173" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.url).toContain("accounts.google.com");
+    expect(decodeURIComponent(response.body.url)).toContain(
+      "http://localhost:4001/api/v1/auth/callback/google",
     );
+  });
+
+  it("issues a 15-minute JWT for an authenticated session", async () => {
+    const registration = await signUp(
+      `${AUTH_TEST_EMAIL_PREFIX}jwt@example.com`,
+    );
+    const cookie = sessionCookie(registration);
+
+    const response = await request(createApp())
+      .get("/api/v1/auth/token")
+      .set("Cookie", cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.token.split(".")).toHaveLength(3);
+    const claims = decodeJwt(response.body.token);
+    expect(claims.exp! - claims.iat!).toBe(15 * 60);
+    expect(claims.role).toBe("USER");
+  });
+
+  it("authorizes protected routes with either a session cookie or JWT", async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}protected@example.com`;
+    const registration = await signUp(email);
+    const cookie = sessionCookie(registration);
+    const tokenResponse = await request(createApp())
+      .get("/api/v1/auth/token")
+      .set("Cookie", cookie);
+
+    const sessionRequest = await request(createApp())
+      .get("/api/v1/me")
+      .set("Cookie", cookie);
+    const jwtRequest = await request(createApp())
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${tokenResponse.body.token}`);
+    const invalid = await request(createApp())
+      .get("/api/v1/me")
+      .set("Authorization", "Bearer invalid-token");
+
+    expect(sessionRequest.status).toBe(200);
+    expect(sessionRequest.body.data.user.email).toBe(email);
+    expect(jwtRequest.status).toBe(200);
+    expect(jwtRequest.body.data.user.email).toBe(email);
+    expect(invalid.status).toBe(401);
+    expect(invalid.body).toEqual({
+      error: {
+        code: "UNAUTHENTICATED",
+        message: "Authentication is required",
+      },
+    });
+  });
+
+  it("rejects an expired JWT", async () => {
+    const registration = await signUp(
+      `${AUTH_TEST_EMAIL_PREFIX}expired-jwt@example.com`,
+    );
+    const cookie = sessionCookie(registration);
+    const tokenResponse = await request(createApp())
+      .get("/api/v1/auth/token")
+      .set("Cookie", cookie);
+    const claims = decodeJwt(tokenResponse.body.token);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime((claims.exp! + 1) * 1_000);
+
+    try {
+      const response = await request(createApp())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${tokenResponse.body.token}`);
+      expect(response.status).toBe(401);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects wrongly issued and wrongly signed JWTs", async () => {
+    const registration = await signUp(
+      `${AUTH_TEST_EMAIL_PREFIX}invalid-jwt@example.com`,
+    );
+    const userId = registration.body.user.id as string;
+    const wrongIssuerAuth = betterAuth({
+      baseURL: "https://wrong-issuer.example",
+      secret: process.env.BETTER_AUTH_SECRET,
+      database: prismaAdapter(prisma, { provider: "postgresql" }),
+      advanced: { database: { generateId: "uuid" } },
+      plugins: [
+        jwt({
+          jwt: {
+            issuer: "https://wrong-issuer.example",
+            audience: "http://localhost:4001",
+          },
+        }),
+      ],
+    });
+    const wrongIssuer = await wrongIssuerAuth.api.signJWT({
+      body: {
+        payload: { sub: userId, role: "USER" },
+      },
+    });
+    const removedRole = await auth.api.signJWT({
+      body: { payload: { sub: userId, role: "ORGANIZER" } },
+    });
+    const { privateKey } = await generateKeyPair("EdDSA");
+    const wrongSignature = await new SignJWT({ role: "USER" })
+      .setProtectedHeader({ alg: "EdDSA" })
+      .setSubject(userId)
+      .setIssuer("http://localhost:4001")
+      .setAudience("http://localhost:4001")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(privateKey);
+
+    for (const [name, token] of [
+      ["wrong issuer", wrongIssuer.token],
+      ["wrong signature", wrongSignature],
+      ["removed role", removedRole.token],
+    ] as const) {
+      const response = await request(createApp())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${token}`);
+      expect(response.status, name).toBe(401);
+    }
   });
 });

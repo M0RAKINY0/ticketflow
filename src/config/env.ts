@@ -19,8 +19,11 @@ const environmentSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(100),
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
-  ACCESS_TOKEN_SECRET: z.string().min(32),
-  REFRESH_TOKEN_SECRET: z.string().min(32),
+  BETTER_AUTH_SECRET: z.string().min(32),
+  BETTER_AUTH_URL: z.url(),
+  GOOGLE_CLIENT_ID: z.string().trim().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().trim().min(1),
+  TICKET_QR_SECRET: z.string().min(32),
 });
 
 export type Env = Omit<

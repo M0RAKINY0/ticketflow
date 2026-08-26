@@ -5,21 +5,9 @@ import express, {
 } from "express";
 
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { env } from "../../src/config/env.js";
 import { errorHandler } from "../../src/middleware/error.middleware.js";
-import {
-  loginController,
-  logoutController,
-  refreshController,
-  registerController,
-} from "../../src/modules/auth/auth.controller.js";
-import {
-  refreshCookieName,
-  refreshCookieOptions,
-} from "../../src/modules/auth/auth.cookie.js";
-import { authRouter } from "../../src/modules/auth/auth.routes.js";
 import {
   cancelEventController,
   createCheckInController,
@@ -57,14 +45,7 @@ import {
 import { usersRouter } from "../../src/modules/users/users.routes.js";
 import { AppError } from "../../src/shared/errors.js";
 import { success } from "../../src/shared/response.js";
-import { signAccessToken } from "../../src/utilities/token.js";
-
-const authService = vi.hoisted(() => ({
-  register: vi.fn(),
-  login: vi.fn(),
-  refresh: vi.fn(),
-  logout: vi.fn(),
-}));
+import { issueTestJwt } from "../helpers/auth.js";
 
 const usersService = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
@@ -92,7 +73,6 @@ const ticketingService = vi.hoisted(() => ({
   listCheckIns: vi.fn(),
 }));
 
-vi.mock("../../src/modules/auth/auth.service.js", () => authService);
 vi.mock("../../src/modules/users/users.service.js", () => usersService);
 vi.mock(
   "../../src/modules/ticketing/ticketing.service.js",
@@ -121,7 +101,7 @@ function responseDouble(): ResponseDouble {
 }
 
 function routeHandlers(
-  router: typeof authRouter,
+  router: typeof usersRouter | typeof ticketingRouter,
   path: string,
   method: string,
 ): unknown[] {
@@ -138,102 +118,6 @@ function routeHandlers(
 
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-describe("auth controllers", () => {
-  it("returns the registration envelope and refresh cookie from the auth service result", async () => {
-    const result = {
-      user: { id: "user-1", email: "person@example.com" },
-      accessToken: "access-token",
-      refreshToken: "refresh-token",
-    };
-    const response = responseDouble();
-    const next = vi.fn<NextFunction>();
-    authService.register.mockResolvedValue(result);
-
-    await registerController(
-      {
-        body: {
-          email: "person@example.com",
-          name: "Person",
-          phoneNumber: "+2348000000000",
-          password: "twelve-or-more",
-        },
-      } as Request,
-      response as Response,
-      next,
-    );
-
-    expect(response.cookie).toHaveBeenCalledWith(
-      refreshCookieName,
-      "refresh-token",
-      refreshCookieOptions(env.NODE_ENV === "production"),
-    );
-    expect(response.status).toHaveBeenCalledWith(201);
-    expect(response.json).toHaveBeenCalledWith(
-      success({ user: result.user, accessToken: "access-token" }),
-    );
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it("forwards login validation failures as the established application error", async () => {
-    const response = responseDouble();
-    const next = vi.fn<NextFunction>();
-
-    await loginController(
-      { body: { email: "not-an-email" } } as Request,
-      response as Response,
-      next,
-    );
-
-    expect(next).toHaveBeenCalledWith(
-      expect.objectContaining({
-        statusCode: 400,
-        code: "VALIDATION_ERROR",
-        message: "Request validation failed",
-      }),
-    );
-    expect(response.json).not.toHaveBeenCalled();
-  });
-
-  it("forwards the established error when refresh has no cookie", async () => {
-    const response = responseDouble();
-    const next = vi.fn<NextFunction>();
-
-    await refreshController(
-      { cookies: {} } as Request,
-      response as Response,
-      next,
-    );
-
-    expect(next).toHaveBeenCalledWith(
-      expect.objectContaining({
-        statusCode: 401,
-        code: "INVALID_REFRESH_TOKEN",
-        message: "Invalid refresh token",
-      }),
-    );
-  });
-
-  it("revokes a supplied refresh token and returns the established empty logout response", async () => {
-    const response = responseDouble();
-    const next = vi.fn<NextFunction>();
-    authService.logout.mockResolvedValue(undefined);
-
-    await logoutController(
-      { cookies: { [refreshCookieName]: "refresh-token" } } as Request,
-      response as Response,
-      next,
-    );
-
-    expect(response.clearCookie).toHaveBeenCalledWith(
-      refreshCookieName,
-      refreshCookieOptions(env.NODE_ENV === "production"),
-    );
-    expect(response.status).toHaveBeenCalledWith(204);
-    expect(response.send).toHaveBeenCalledWith();
-    expect(next).not.toHaveBeenCalled();
-  });
 });
 
 describe("user controllers", () => {
@@ -291,22 +175,7 @@ describe("user controllers", () => {
   });
 });
 
-describe("auth and users routes", () => {
-  it("connects every auth path to its named controller", () => {
-    expect(routeHandlers(authRouter, "/register", "post")).toEqual([
-      registerController,
-    ]);
-    expect(routeHandlers(authRouter, "/login", "post")).toEqual([
-      loginController,
-    ]);
-    expect(routeHandlers(authRouter, "/refresh", "post")).toEqual([
-      refreshController,
-    ]);
-    expect(routeHandlers(authRouter, "/logout", "post")).toEqual([
-      logoutController,
-    ]);
-  });
-
+describe("user routes", () => {
   it("keeps complete feature access chains before protected user controllers", async () => {
     expect(routeHandlers(usersRouter, "/me", "get")).toEqual([
       ...usersAuthenticated,
@@ -338,7 +207,7 @@ describe("auth and users routes", () => {
       .get("/users")
       .set(
         "authorization",
-        `Bearer ${signAccessToken({ id: "1e4486b5-9d96-4e34-a306-12b01197c6a5", role: "USER" })}`,
+        `Bearer ${await issueTestJwt({ id: "1e4486b5-9d96-4e34-a306-12b01197c6a5", role: "USER" })}`,
       )
       .expect(403, {
         error: {
@@ -353,7 +222,11 @@ describe("ticketing controllers and routes", () => {
   const eventId = "1e4486b5-9d96-4e34-a306-12b01197c6a5";
   const ticketId = "2e4486b5-9d96-4e34-a306-12b01197c6a5";
   const userId = "3e4486b5-9d96-4e34-a306-12b01197c6a5";
-  const userToken = signAccessToken({ id: userId, role: "USER" });
+  let userToken: string;
+
+  beforeAll(async () => {
+    userToken = await issueTestJwt({ id: userId, role: "USER" });
+  });
 
   it.each([
     ["get", "/events", [...optionalAuthentication, listEventsController]],
@@ -456,7 +329,7 @@ describe("ticketing controllers and routes", () => {
       .post(`/events/${eventId}/reservations`)
       .set(
         "authorization",
-        `Bearer ${signAccessToken({ id: userId, role: "ADMIN" })}`,
+        `Bearer ${await issueTestJwt({ id: userId, role: "ADMIN" })}`,
       )
       .set("idempotency-key", "reservation-key")
       .send({ ticketTypeId: ticketId })

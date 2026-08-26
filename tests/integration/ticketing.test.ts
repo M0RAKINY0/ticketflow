@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/infrastructure/prisma.js";
-import { signAccessToken } from "../../src/utilities/token.js";
+import { issueTestJwt } from "../helpers/auth.js";
 
 const TEST_EMAIL_PREFIX = "ticketing-test-";
 const futureStart = "2030-06-01T18:00:00.000Z";
@@ -21,12 +21,11 @@ async function createUser(label: string, role: "USER" | "ADMIN") {
       email: `${TEST_EMAIL_PREFIX}${label}@example.com`,
       name: `${label} user`,
       phoneNumber: "+2348000000000",
-      passwordHash: "unused-in-ticketing-tests",
       role,
     },
   });
 
-  return { user, token: signAccessToken(user) };
+  return { user, token: await issueTestJwt(user) };
 }
 
 function authorization(token: string): { Authorization: string } {

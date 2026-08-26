@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectMigrationDatabaseUrl } from "../../src/config/database-url.js";
 import { parseEnv } from "../../src/config/env.js";
-import {
-  POSTGRES_URL,
-  SECRET_A,
-  SECRET_B,
-  TEST_POSTGRES_URL,
-} from "../setup/env.js";
+import { POSTGRES_URL, SECRET_A, TEST_POSTGRES_URL } from "../setup/env.js";
 
 function validEnvironment(
   overrides: NodeJS.ProcessEnv = {},
@@ -17,8 +12,11 @@ function validEnvironment(
     PORT: "4000",
     DATABASE_URL: POSTGRES_URL,
     TEST_DATABASE_URL: TEST_POSTGRES_URL,
-    ACCESS_TOKEN_SECRET: SECRET_A,
-    REFRESH_TOKEN_SECRET: SECRET_B,
+    BETTER_AUTH_SECRET: SECRET_A,
+    BETTER_AUTH_URL: "http://localhost:4000",
+    GOOGLE_CLIENT_ID: "google-client-id",
+    GOOGLE_CLIENT_SECRET: "google-client-secret",
+    TICKET_QR_SECRET: "q".repeat(32),
     ...overrides,
   };
 }
@@ -40,10 +38,25 @@ describe("parseEnv", () => {
     expect(parseEnv(validEnvironment()).DATABASE_URL).toBe(TEST_POSTGRES_URL);
   });
 
-  it("rejects secrets shorter than 32 characters", () => {
+  it("rejects a Better Auth secret shorter than 32 characters", () => {
     expect(() =>
-      parseEnv(validEnvironment({ ACCESS_TOKEN_SECRET: "a".repeat(31) })),
+      parseEnv(validEnvironment({ BETTER_AUTH_SECRET: "a".repeat(31) })),
     ).toThrow(/32/);
+  });
+
+  it("requires Google OAuth credentials", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ GOOGLE_CLIENT_ID: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ GOOGLE_CLIENT_SECRET: undefined })),
+    ).toThrow();
+  });
+
+  it("requires a separate ticket QR signing secret", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ TICKET_QR_SECRET: undefined })),
+    ).toThrow();
   });
 
   it("applies development and port defaults", () => {
