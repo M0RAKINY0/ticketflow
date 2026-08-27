@@ -1,11 +1,35 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { jwt } from "better-auth/plugins";
+import { emailOTP, jwt } from "better-auth/plugins";
+import type { SecondaryStorage } from "better-auth";
 
 import { env } from "../config/env.js";
 import { prisma } from "./prisma.js";
+import { limitVerificationEmail, redisAuthStorage } from "./redis.js";
+import {
+  verificationEmailSender,
+  type VerificationEmailSender,
+} from "./email.js";
 
-export function createAuth(options: { rateLimitEnabled?: boolean } = {}) {
+export function createAuth(
+  options: {
+    rateLimitEnabled?: boolean;
+    emailSender?: VerificationEmailSender;
+    secondaryStorage?: SecondaryStorage;
+    requireEmailVerification?: boolean;
+    limitVerificationEmail?: (email: string) => Promise<void>;
+  } = {},
+) {
+  const requireEmailVerification =
+    options.requireEmailVerification ?? env.NODE_ENV !== "test";
+  const emailSender =
+    options.emailSender ??
+    (env.NODE_ENV === "test"
+      ? { sendVerificationOtp: async () => undefined }
+      : verificationEmailSender);
+  const emailLimiter =
+    options.limitVerificationEmail ??
+    (env.NODE_ENV === "test" ? async () => undefined : limitVerificationEmail);
   return betterAuth({
     appName: "Ventra",
     baseURL: env.BETTER_AUTH_URL,
@@ -13,7 +37,11 @@ export function createAuth(options: { rateLimitEnabled?: boolean } = {}) {
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: env.FRONTEND_ORIGINS,
     database: prismaAdapter(prisma, { provider: "postgresql" }),
-    emailAndPassword: { enabled: true },
+    emailAndPassword: { enabled: true, requireEmailVerification },
+    secondaryStorage:
+      options.secondaryStorage ??
+      (env.NODE_ENV === "test" ? undefined : redisAuthStorage),
+    verification: { storeIdentifier: "hashed" },
     rateLimit: {
       enabled: options.rateLimitEnabled ?? env.NODE_ENV !== "test",
       window: 60,
@@ -25,6 +53,8 @@ export function createAuth(options: { rateLimitEnabled?: boolean } = {}) {
         "/get-session": { window: 60, max: 60 },
         "/token": { window: 60, max: 60 },
         "/sign-out": { window: 60, max: 20 },
+        "/email-otp/send-verification-otp": { window: 15 * 60, max: 3 },
+        "/email-otp/verify-email": { window: 15 * 60, max: 5 },
       },
     },
     socialProviders: {
@@ -51,6 +81,7 @@ export function createAuth(options: { rateLimitEnabled?: boolean } = {}) {
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
+      storeSessionInDatabase: true,
     },
     advanced: {
       useSecureCookies: env.NODE_ENV === "production",
@@ -60,6 +91,22 @@ export function createAuth(options: { rateLimitEnabled?: boolean } = {}) {
       },
     },
     plugins: [
+      emailOTP({
+        overrideDefaultEmailVerification: true,
+        sendVerificationOnSignUp: requireEmailVerification,
+        disableSignUp: true,
+        otpLength: 6,
+        expiresIn: 300,
+        allowedAttempts: 3,
+        storeOTP: "hashed",
+        async sendVerificationOTP({ email, otp, type }) {
+          if (type !== "email-verification") {
+            throw new Error("Unsupported OTP type");
+          }
+          await emailLimiter(email);
+          await emailSender.sendVerificationOtp(email, otp);
+        },
+      }),
       jwt({
         jwt: {
           issuer: env.BETTER_AUTH_URL,

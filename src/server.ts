@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { connectRedis, disconnectRedis } from "./infrastructure/redis.js";
 
 export function configureHttpTimeouts(server: Server): Server {
   server.headersTimeout = 15_000;
@@ -14,10 +15,14 @@ export function configureHttpTimeouts(server: Server): Server {
 }
 
 export async function startServer(): Promise<void> {
+  await connectRedis();
   const app = createApp();
 
   await new Promise<void>((resolve, reject) => {
     const server = configureHttpTimeouts(createServer(app));
+    const shutdown = () => server.close(() => void disconnectRedis());
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
     server.listen(env.PORT, env.HOST, () => resolve());
     server.once("error", reject);
   });

@@ -24,6 +24,14 @@ const environmentSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().trim().min(1),
   GOOGLE_CLIENT_SECRET: z.string().trim().min(1),
   TICKET_QR_SECRET: z.string().min(32),
+  REDIS_URL: z
+    .url()
+    .refine(
+      (value) => ["redis:", "rediss:"].includes(new URL(value).protocol),
+      "REDIS_URL must use redis or rediss",
+    ),
+  RESEND_API_KEY: z.string().trim().min(1),
+  AUTH_EMAIL_FROM: z.string().trim().min(3),
   SENTRY_DSN: z
     .url()
     .refine(
