@@ -6,7 +6,8 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { jwt } from "better-auth/plugins";
 
 import { createApp } from "../../src/app.js";
-import { auth } from "../../src/infrastructure/auth.js";
+import { auth, createAuth } from "../../src/infrastructure/auth.js";
+import { env } from "../../src/config/env.js";
 import { prisma } from "../../src/infrastructure/prisma.js";
 
 const AUTH_TEST_EMAIL_PREFIX = "auth-test-";
@@ -113,6 +114,24 @@ describe("Better Auth", () => {
 
     expect(invalid.status).toBe(401);
     expect(duplicate.status).toBe(422);
+  });
+
+  it("rate limits password sign-in after five attempts from one IP", async () => {
+    const app = createApp(env, createAuth({ rateLimitEnabled: true }));
+    const statuses: number[] = [];
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await request(app)
+        .post("/api/v1/auth/sign-in/email")
+        .send({
+          email: `${AUTH_TEST_EMAIL_PREFIX}rate-limit@example.com`,
+          password: "wrong-password",
+        });
+      statuses.push(response.status);
+    }
+
+    expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401]);
+    expect(statuses[5]).toBe(429);
   });
 
   it("builds a Google authorization URL with the configured callback", async () => {
