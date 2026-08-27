@@ -74,6 +74,9 @@ describe("parseEnv", () => {
     expect(() =>
       parseEnv(validEnvironment({ SENTRY_DSN: "not-a-url" })),
     ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ SENTRY_DSN: "ftp://sentry.example/1" })),
+    ).toThrow(/HTTP or HTTPS/);
   });
 
   it("applies development and port defaults", () => {
