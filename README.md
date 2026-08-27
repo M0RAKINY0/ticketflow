@@ -108,6 +108,8 @@ Public registration always creates a `USER`, even if the request supplies a role
 
 `phoneNumber` is optional. Better Auth sessions last 30 days and update their activity timestamp once per day. Production cookies use `Secure`. Google and Better Auth secrets belong in `.env` or the deployment secret manager and must never be committed.
 
+The API-wide traffic ceiling remains 100 requests per minute per IP. Better Auth applies tighter limits to sensitive routes: password sign-in allows 5 requests per 15 minutes, email signup allows 5 per hour, and Google sign-in initialization allows 20 per minute. Session reads and JWT issuance allow 60 per minute, while sign-out allows 20 per minute. These counters currently live in each Node.js process and use the connecting IP. Redis-backed shared counters and independent per-account limits belong in the planned email and OTP integration.
+
 Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration.
 
 ## Ticketing API
