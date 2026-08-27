@@ -17,6 +17,9 @@ function validEnvironment(
     GOOGLE_CLIENT_ID: "google-client-id",
     GOOGLE_CLIENT_SECRET: "google-client-secret",
     TICKET_QR_SECRET: "q".repeat(32),
+    REDIS_URL: "redis://localhost:6379",
+    RESEND_API_KEY: "re_test_key",
+    AUTH_EMAIL_FROM: "Ventra <auth@example.com>",
     ...overrides,
   };
 }
@@ -50,6 +53,18 @@ describe("parseEnv", () => {
     ).toThrow();
     expect(() =>
       parseEnv(validEnvironment({ GOOGLE_CLIENT_SECRET: undefined })),
+    ).toThrow();
+  });
+
+  it("requires Redis and Resend configuration", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ REDIS_URL: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ RESEND_API_KEY: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ AUTH_EMAIL_FROM: undefined })),
     ).toThrow();
   });
 

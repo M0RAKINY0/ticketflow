@@ -2,7 +2,7 @@
 
 This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, Better Auth, and Sentry. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
-The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. There is no Redis, job worker, payment system, Docker, or Nginx layer.
+The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. Redis stores short-lived authentication data. There is no job worker, payment system, or Nginx layer.
 
 ## Capabilities
 
@@ -20,6 +20,7 @@ The frontend lives in a separate repository. This repository owns the API, datab
 
 - Node.js 24 or newer.
 - PostgreSQL.
+- Redis 7.
 
 Install dependencies:
 
@@ -43,6 +44,9 @@ GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
 TICKET_QR_SECRET=replace-with-at-least-32-characters
 SENTRY_DSN=https://public-key@organization.ingest.sentry.io/project-id
+REDIS_URL=redis://localhost:6379
+RESEND_API_KEY=re_replace-with-resend-api-key
+AUTH_EMAIL_FROM=Ventra <auth@example.com>
 ```
 
 For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test mode rejects a test URL that is missing or equal to `DATABASE_URL`.
@@ -50,6 +54,7 @@ For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test
 Generate the client, apply migrations, and start development:
 
 ```bash
+docker compose up -d redis
 npm run prisma:generate
 npm run prisma:migrate
 npm run dev
@@ -108,7 +113,11 @@ Public registration always creates a `USER`, even if the request supplies a role
 
 `phoneNumber` is optional. Better Auth sessions last 30 days and update their activity timestamp once per day. Production cookies use `Secure`. Google and Better Auth secrets belong in `.env` or the deployment secret manager and must never be committed.
 
-The API-wide traffic ceiling remains 100 requests per minute per IP. Better Auth applies tighter limits to sensitive routes: password sign-in allows 5 requests per 15 minutes, email signup allows 5 per hour, and Google sign-in initialization allows 20 per minute. Session reads and JWT issuance allow 60 per minute, while sign-out allows 20 per minute. These counters currently live in each Node.js process and use the connecting IP. Redis-backed shared counters and independent per-account limits belong in the planned email and OTP integration.
+Password signup sends a six-digit verification code through Resend. The code expires after five minutes and becomes invalid after three incorrect attempts. Signup does not create a session until the email is verified through `POST /api/v1/auth/email-otp/verify-email`. Clients can request another verification code through `POST /api/v1/auth/email-otp/send-verification-otp`. Passwordless email sign-in is not supported. Google sign-in is unchanged.
+
+Redis stores OTP verification records and shared Better Auth rate-limit counters under the `ventra:auth:` prefix. User sessions remain in PostgreSQL. The API refuses to start when Redis is unavailable.
+
+The API-wide traffic ceiling remains 100 requests per minute per IP. Better Auth applies tighter limits to sensitive routes: password sign-in allows 5 requests per 15 minutes, email signup allows 5 per hour, and Google sign-in initialization allows 20 per minute. Session reads and JWT issuance allow 60 per minute, while sign-out allows 20 per minute. Redis shares these counters between application instances. Verification email delivery is also limited to three requests per 15 minutes for both the source IP and a keyed hash of the normalized email address.
 
 Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration.
 

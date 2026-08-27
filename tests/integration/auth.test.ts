@@ -134,6 +134,41 @@ describe("Better Auth", () => {
     expect(statuses[5]).toBe(429);
   });
 
+  it("requires the emailed OTP before password sign-in", async () => {
+    const email = `${AUTH_TEST_EMAIL_PREFIX}verify@example.com`;
+    let deliveredOtp = "";
+    const app = createApp(
+      env,
+      createAuth({
+        requireEmailVerification: true,
+        emailSender: {
+          async sendVerificationOtp(_email, otp) {
+            deliveredOtp = otp;
+          },
+        },
+      }),
+    );
+
+    const registration = await request(app)
+      .post("/api/v1/auth/sign-up/email")
+      .send({ email, name: "Guest User", password });
+    const blocked = await request(app)
+      .post("/api/v1/auth/sign-in/email")
+      .send({ email, password });
+    const verified = await request(app)
+      .post("/api/v1/auth/email-otp/verify-email")
+      .send({ email, otp: deliveredOtp });
+    const signedIn = await request(app)
+      .post("/api/v1/auth/sign-in/email")
+      .send({ email, password });
+
+    expect(deliveredOtp).toMatch(/^\d{6}$/);
+    expect(registration.headers["set-cookie"]).toBeUndefined();
+    expect(blocked.status).toBe(403);
+    expect(verified.status).toBe(200);
+    expect(signedIn.status).toBe(200);
+  });
+
   it("builds a Google authorization URL with the configured callback", async () => {
     const response = await request(createApp())
       .post("/api/v1/auth/sign-in/social")
