@@ -1,6 +1,6 @@
 # Ventra Ticketing
 
-This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, and Better Auth. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
+This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, Better Auth, and Sentry. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
 The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. There is no Redis, job worker, payment system, Docker, or Nginx layer.
 
@@ -42,6 +42,7 @@ BETTER_AUTH_URL=http://localhost:4000
 GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
 TICKET_QR_SECRET=replace-with-at-least-32-characters
+SENTRY_DSN=https://public-key@organization.ingest.sentry.io/project-id
 ```
 
 For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test mode rejects a test URL that is missing or equal to `DATABASE_URL`.
@@ -64,6 +65,14 @@ npm run format:check
 ```
 
 Pull requests targeting `main` run the full test suite, type checking, and production build in GitHub Actions. CI starts an isolated PostgreSQL service and applies all Prisma migrations before running tests.
+
+## Error reporting
+
+Set `SENTRY_DSN` to enable backend error reporting. Leave it unset to run without Sentry. Test mode never initializes the Sentry SDK, even when a DSN exists.
+
+Sentry receives unexpected server errors and application errors with a status of 500 or higher. Ventra does not report expected client errors such as validation failures, denied origins, malformed JSON, missing resources, or authorization failures. The integration keeps `sendDefaultPii` disabled and performance tracing set to zero. Ventra's existing JSON error responses do not change.
+
+The development and production commands preload `src/instrument.ts` or its compiled output before starting the server. This gives the Sentry SDK a chance to initialize before application modules load. Keep the populated DSN in `.env` or the deployment secret manager; never commit it.
 
 ## HTTP composition
 

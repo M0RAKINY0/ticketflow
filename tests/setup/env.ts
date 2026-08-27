@@ -12,3 +12,4 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:4001";
 process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
 process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
 process.env.TICKET_QR_SECRET ??= "q".repeat(32);
+delete process.env.SENTRY_DSN;
