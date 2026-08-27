@@ -7,6 +7,7 @@ import { errorHandler } from "./middleware/error.middleware.js";
 import { createSecurityMiddleware } from "./middleware/security.middleware.js";
 import { apiRouter } from "./routes/index.js";
 import { auth } from "./infrastructure/auth.js";
+import { setupSentryErrorHandler } from "./infrastructure/sentry.js";
 
 export function createApp(config: Env = env): Express {
   const app = express();
@@ -22,6 +23,7 @@ export function createApp(config: Env = env): Express {
       .status(404)
       .json({ error: { code: "NOT_FOUND", message: "Not found" } });
   });
+  setupSentryErrorHandler(app);
   app.use(errorHandler);
 
   return app;

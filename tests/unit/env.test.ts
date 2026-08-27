@@ -59,6 +59,23 @@ describe("parseEnv", () => {
     ).toThrow();
   });
 
+  it("accepts an optional Sentry DSN", () => {
+    expect(
+      parseEnv(
+        validEnvironment({
+          SENTRY_DSN: "https://public-key@o123456.ingest.sentry.io/123456",
+        }),
+      ).SENTRY_DSN,
+    ).toBe("https://public-key@o123456.ingest.sentry.io/123456");
+    expect(parseEnv(validEnvironment()).SENTRY_DSN).toBeUndefined();
+  });
+
+  it("rejects an invalid Sentry DSN", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ SENTRY_DSN: "not-a-url" })),
+    ).toThrow();
+  });
+
   it("applies development and port defaults", () => {
     const environment = validEnvironment({
       NODE_ENV: undefined,
