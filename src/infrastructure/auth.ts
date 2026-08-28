@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { emailOTP, jwt } from "better-auth/plugins";
+import { emailOTP, jwt, openAPI } from "better-auth/plugins";
 import type { SecondaryStorage } from "better-auth";
 
 import { env } from "../config/env.js";
@@ -91,6 +91,7 @@ export function createAuth(
       },
     },
     plugins: [
+      openAPI({ disableDefaultReference: true }),
       emailOTP({
         overrideDefaultEmailVerification: true,
         sendVerificationOnSignUp: requireEmailVerification,

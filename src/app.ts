@@ -8,6 +8,7 @@ import { createSecurityMiddleware } from "./middleware/security.middleware.js";
 import { apiRouter } from "./routes/index.js";
 import { auth, type Auth } from "./infrastructure/auth.js";
 import { setupSentryErrorHandler } from "./infrastructure/sentry.js";
+import { createDocsRouter } from "./routes/docs.routes.js";
 
 export function createApp(
   config: Env = env,
@@ -17,6 +18,7 @@ export function createApp(
 
   app.disable("x-powered-by");
   app.use(...createSecurityMiddleware(config));
+  app.use(createDocsRouter(authInstance));
   app.all("/api/v1/auth/*splat", toNodeHandler(authInstance));
   app.use(cookieParser());
   app.use(express.json({ limit: "1mb", strict: true }));

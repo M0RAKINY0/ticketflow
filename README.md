@@ -69,6 +69,10 @@ npm run build
 npm run format:check
 ```
 
+## API documentation
+
+Start the backend, then open `http://localhost:4000/api/docs/` for Swagger UI. The OpenAPI 3.1 JSON contract is available at `http://localhost:4000/api/openapi.json`. The document combines Better Auth's generated authentication operations with Ventra's users, events, ticketing, reservation, and check-in routes.
+
 Pull requests targeting `main` run the full test suite, type checking, and production build in GitHub Actions. CI starts an isolated PostgreSQL service and applies all Prisma migrations before running tests.
 
 ## Error reporting
