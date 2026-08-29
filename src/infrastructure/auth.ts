@@ -6,15 +6,16 @@ import type { SecondaryStorage } from "better-auth";
 import { env } from "../config/env.js";
 import { prisma } from "./prisma.js";
 import { limitVerificationEmail, redisAuthStorage } from "./redis.js";
-import {
-  verificationEmailSender,
-  type VerificationEmailSender,
-} from "./email.js";
+import { type VerificationOtpProducer } from "../modules/notifications/otp.producer.js";
+import { createApiOtpRuntime } from "./queues/api-otp-runtime.js";
+
+const apiOtpRuntime =
+  env.NODE_ENV === "test" ? undefined : createApiOtpRuntime();
 
 export function createAuth(
   options: {
     rateLimitEnabled?: boolean;
-    emailSender?: VerificationEmailSender;
+    otpProducer?: VerificationOtpProducer;
     secondaryStorage?: SecondaryStorage;
     requireEmailVerification?: boolean;
     limitVerificationEmail?: (email: string) => Promise<void>;
@@ -22,11 +23,8 @@ export function createAuth(
 ) {
   const requireEmailVerification =
     options.requireEmailVerification ?? env.NODE_ENV !== "test";
-  const emailSender =
-    options.emailSender ??
-    (env.NODE_ENV === "test"
-      ? { sendVerificationOtp: async () => undefined }
-      : verificationEmailSender);
+  const otpProducer = options.otpProducer ??
+    apiOtpRuntime?.otpProducer ?? { enqueue: async () => undefined };
   const emailLimiter =
     options.limitVerificationEmail ??
     (env.NODE_ENV === "test" ? async () => undefined : limitVerificationEmail);
@@ -105,7 +103,7 @@ export function createAuth(
             throw new Error("Unsupported OTP type");
           }
           await emailLimiter(email);
-          await emailSender.sendVerificationOtp(email, otp);
+          await otpProducer.enqueue(email, otp);
         },
       }),
       jwt({
@@ -127,3 +125,7 @@ export function createAuth(
 export type Auth = ReturnType<typeof createAuth>;
 
 export const auth = createAuth();
+
+export async function closeAuthOtpProducer(): Promise<void> {
+  await apiOtpRuntime?.close();
+}
