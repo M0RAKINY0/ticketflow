@@ -127,6 +127,32 @@ export const ticketingModel = {
     });
   },
 
+  findReservationTicketEmail(reservationId: string) {
+    return prisma.reservation.findUniqueOrThrow({
+      where: { id: reservationId },
+      select: {
+        user: { select: { email: true, name: true } },
+        event: { select: { title: true, startsAt: true, timezone: true } },
+        ticketType: { select: { name: true } },
+        ticket: {
+          select: {
+            id: true,
+            publicId: true,
+            qrCodeDataUrl: true,
+            emailSentAt: true,
+          },
+        },
+      },
+    });
+  },
+
+  markTicketEmailSent(ticketId: string, emailSentAt: Date) {
+    return prisma.ticket.updateMany({
+      where: { id: ticketId, emailSentAt: null },
+      data: { emailSentAt },
+    });
+  },
+
   listReservations(userId: string) {
     return prisma.reservation.findMany({
       where: { userId },
