@@ -1,7 +1,8 @@
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.js";
+import { ticketEmailSender } from "../../src/infrastructure/email.js";
 import { prisma } from "../../src/infrastructure/prisma.js";
 import { issueTestJwt } from "../helpers/auth.js";
 
@@ -9,7 +10,12 @@ const TEST_EMAIL_PREFIX = "ticketing-test-";
 const futureStart = "2030-06-01T18:00:00.000Z";
 const futureEnd = "2030-06-01T22:00:00.000Z";
 
+beforeEach(() => {
+  vi.spyOn(ticketEmailSender, "sendTicket").mockResolvedValue();
+});
+
 afterEach(async () => {
+  vi.restoreAllMocks();
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_EMAIL_PREFIX } },
   });
@@ -416,6 +422,7 @@ describe("reservations and attendee tickets", () => {
     expect(replay.status).toBe(200);
     expect(replay.body.data.reservation.id).toBe(reservationId);
     expect(first.body.data.reservation.ticket.status).toBe("READY");
+    expect(first.body.data.reservation.ticket.emailSentAt).toBeUndefined();
     expect(first.body.data.reservation.ticket.qrPayload).toMatch(
       /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/,
     );
@@ -424,6 +431,17 @@ describe("reservations and attendee tickets", () => {
     );
     expect(first.body.data.reservation.ticket.qrPayload).not.toContain(eventId);
     expect(storedTicket.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(storedTicket.emailSentAt).toBeInstanceOf(Date);
+    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(1);
+    expect(ticketEmailSender.sendTicket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ticketId,
+        recipientEmail: attendee.user.email,
+        eventName: "Idempotent Show",
+        ticketTypeName: "General Admission",
+        qrCodeDataUrl: storedTicket.qrCodeDataUrl,
+      }),
+    );
     expect(storedType.reservedCount).toBe(1);
     expect(reservations.body.data.reservations).toEqual([
       expect.objectContaining({ id: reservationId }),
@@ -433,6 +451,76 @@ describe("reservations and attendee tickets", () => {
     ]);
     expect(ticket.body.data.ticket.id).toBe(ticketId);
     expect(qr.body.data.qrCodeDataUrl).toBe(storedTicket.qrCodeDataUrl);
+  });
+
+  it("keeps the reservation and retries ticket email delivery after a provider failure", async () => {
+    const owner = await createUser("email-retry-owner", "USER");
+    const attendee = await createUser("email-retry-attendee", "USER");
+    const createdEvent = await createEvent(owner.token, "Retry Show");
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId);
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+    vi.mocked(ticketEmailSender.sendTicket)
+      .mockRejectedValueOnce(new Error("Resend unavailable"))
+      .mockResolvedValueOnce();
+
+    const failed = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "retry-ticket-email",
+    );
+    const retried = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "retry-ticket-email",
+    );
+    const reservations = await prisma.reservation.findMany({
+      where: { userId: attendee.user.id },
+      include: { ticket: true },
+    });
+
+    expect(failed.status).toBe(500);
+    expect(failed.body).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Internal server error",
+      },
+    });
+    expect(retried.status).toBe(200);
+    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(2);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]?.ticket).not.toBeNull();
+  });
+
+  it("retries delivery when a concurrent idempotent replay follows an email failure", async () => {
+    const owner = await createUser("email-race-owner", "USER");
+    const attendee = await createUser("email-race-attendee", "USER");
+    const createdEvent = await createEvent(owner.token, "Concurrent Show");
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId);
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+    vi.mocked(ticketEmailSender.sendTicket)
+      .mockRejectedValueOnce(new Error("Resend unavailable"))
+      .mockResolvedValueOnce();
+
+    const responses = await Promise.all([
+      reserve(attendee.token, eventId, ticketTypeId, "concurrent-email"),
+      reserve(attendee.token, eventId, ticketTypeId, "concurrent-email"),
+    ]);
+
+    expect(
+      responses.filter((response) => response.status === 500),
+    ).toHaveLength(1);
+    expect(
+      responses.filter(
+        (response) => response.status >= 200 && response.status < 300,
+      ),
+    ).toHaveLength(1);
+    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(2);
   });
 
   it("never exceeds capacity under concurrent reservations", async () => {

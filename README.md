@@ -12,6 +12,7 @@ The frontend lives in a separate repository. This repository owns the API, datab
 - Paginated public discovery of upcoming published events by search, category, date, and country.
 - Atomic capacity enforcement and per-user idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
+- Ticket delivery through Resend with the QR displayed inline and attached as a PNG.
 - Attendee reservation, ticket, and QR retrieval.
 - Event-owner/admin ticket validation with exactly-once check-in.
 - Stable `{ "data": ... }` success and `{ "error": { "code", "message" } }` error envelopes.
@@ -157,6 +158,8 @@ Reservation requests require an `Idempotency-Key` header and a JSON body:
 
 The first successful request returns `201`; replaying the same user, key, event, and ticket type returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`.
 
+After the reservation transaction commits, Ventra sends the attendee a ticket email through Resend. The email contains the event and ticket details, displays the QR code inline, and attaches the same QR as a PNG. The ticket remains available through the authenticated ticket endpoints. Ventra records successful delivery in PostgreSQL and uses `ticket-confirmation/<ticket-id>` as the Resend idempotency key. A replay skips an email already recorded as sent. If delivery failed, replaying the same reservation request retries the email without creating another reservation or consuming more inventory.
+
 Check-in requests accept the payload read from the ticket's QR code:
 
 ```json
@@ -210,3 +213,4 @@ PostgreSQL is the concurrency authority:
 - Ticket status changes from `READY` to `USED` through a conditional update.
 - `CheckIn.ticketId` is unique as a second exactly-once safeguard.
 - Generated PNG QR data URLs are stored durably in `Ticket.qrCodeDataUrl`.
+- Successful ticket-email delivery is recorded in `Ticket.emailSentAt` and is not exposed in API responses.
