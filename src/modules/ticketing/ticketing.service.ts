@@ -3,8 +3,8 @@ import type {
   Prisma,
   Role,
 } from "../../generated/prisma/client.js";
+import { randomUUID } from "node:crypto";
 import { prisma } from "../../infrastructure/prisma.js";
-import { ticketEmailSender } from "../../infrastructure/email.js";
 import { AppError } from "../../shared/errors.js";
 import { canManageEvent } from "./ticketing.authorization.js";
 import {
@@ -294,10 +294,13 @@ export async function createReservation(
   const replay = await findReservationByKey(userId, idempotencyKey);
   if (replay) {
     const result = resolveReservationReplay(replay, eventId, ticketTypeId);
-    await sendReservationTicketEmail(replay.id);
+    if (replay.ticket) {
+      await ticketingModel.ensureTicketEmailOutbox(replay.ticket.id);
+    }
     return result;
   }
 
+  const ticketId = randomUUID();
   const publicId = createTicketPublicId();
   const qrCodeDataUrl = await createTicketQrDataUrl(publicId);
 
@@ -329,6 +332,7 @@ export async function createReservation(
           idempotencyKey,
           ticket: {
             create: {
+              id: ticketId,
               publicId,
               qrCodeDataUrl,
               status: "READY",
@@ -338,11 +342,17 @@ export async function createReservation(
         select: { id: true },
       });
 
+      await transaction.outboxEvent.create({
+        data: {
+          type: "TICKET_EMAIL_REQUESTED",
+          aggregateId: ticketId,
+        },
+      });
+
       return reservation.id;
     });
 
     const reservation = await ticketingModel.findReservationById(reservationId);
-    await sendReservationTicketEmail(reservationId);
 
     return { created: true, reservation: decorateReservation(reservation) };
   } catch (error) {
@@ -357,41 +367,17 @@ export async function createReservation(
           eventId,
           ticketTypeId,
         );
-        await sendReservationTicketEmail(concurrentReplay.id);
+        if (concurrentReplay.ticket) {
+          await ticketingModel.ensureTicketEmailOutbox(
+            concurrentReplay.ticket.id,
+          );
+        }
         return result;
       }
     }
 
     throw error;
   }
-}
-
-async function sendReservationTicketEmail(reservationId: string) {
-  const delivery =
-    await ticketingModel.findReservationTicketEmail(reservationId);
-
-  if (delivery.ticket?.emailSentAt) return;
-
-  if (!delivery.ticket?.qrCodeDataUrl) {
-    throw new AppError(
-      500,
-      "TICKET_EMAIL_NOT_READY",
-      "Ticket email is not ready",
-    );
-  }
-
-  await ticketEmailSender.sendTicket({
-    ticketId: delivery.ticket.id,
-    publicId: delivery.ticket.publicId,
-    recipientEmail: delivery.user.email,
-    attendeeName: delivery.user.name,
-    eventName: delivery.event.title,
-    eventStartsAt: delivery.event.startsAt,
-    eventTimezone: delivery.event.timezone,
-    ticketTypeName: delivery.ticketType.name,
-    qrCodeDataUrl: delivery.ticket.qrCodeDataUrl,
-  });
-  await ticketingModel.markTicketEmailSent(delivery.ticket.id, new Date());
 }
 
 export async function listReservations(userId: string) {

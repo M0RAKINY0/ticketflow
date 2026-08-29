@@ -153,6 +153,29 @@ export const ticketingModel = {
     });
   },
 
+  async ensureTicketEmailOutbox(ticketId: string): Promise<void> {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { emailSentAt: true },
+    });
+
+    if (!ticket || ticket.emailSentAt) return;
+
+    await prisma.outboxEvent.upsert({
+      where: {
+        type_aggregateId: {
+          type: "TICKET_EMAIL_REQUESTED",
+          aggregateId: ticketId,
+        },
+      },
+      create: {
+        type: "TICKET_EMAIL_REQUESTED",
+        aggregateId: ticketId,
+      },
+      update: {},
+    });
+  },
+
   listReservations(userId: string) {
     return prisma.reservation.findMany({
       where: { userId },
