@@ -40,7 +40,7 @@ type Wait = (intervalMs: number, signal: AbortSignal) => Promise<void>;
 
 const DEFAULT_BATCH_LIMIT = 25;
 const DEFAULT_INTERVAL_MS = 1_000;
-const LEASE_DURATION_MS = 30_000;
+const LEASE_DURATION_MS = 60_000;
 
 function waitForInterval(
   intervalMs: number,

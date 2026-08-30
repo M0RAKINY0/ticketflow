@@ -64,6 +64,12 @@ describe("outbox dispatcher", () => {
       },
       now,
     );
+    expect(repository.claimBatch).toHaveBeenCalledWith({
+      workerId: "worker-1",
+      now,
+      leaseExpiredAt: new Date("2030-06-15T18:29:00.000Z"),
+      limit: 25,
+    });
   });
 
   it("records a sanitized retry when queue publication fails", async () => {
