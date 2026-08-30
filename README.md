@@ -73,6 +73,17 @@ npm run build
 npm run format:check
 ```
 
+The end-to-end queue test uses temporary PostgreSQL and Redis containers on ports `55432` and `56379`. It captures email calls in memory, so it never contacts Resend.
+
+```bash
+docker compose -p ventra-e2e -f compose.e2e.yml up -d --wait
+NODE_ENV=test DATABASE_URL=postgresql://ventra:ventra@127.0.0.1:5432/ventra TEST_DATABASE_URL=postgresql://ventra:ventra@127.0.0.1:55432/ventra_e2e npx prisma migrate deploy
+npm run test:e2e
+docker compose -p ventra-e2e -f compose.e2e.yml down
+```
+
+The test creates and verifies two users, creates and publishes an event, stops Redis during a reservation, then starts Redis and waits for the outbox and worker to deliver the ticket. It also checks encrypted OTP job data, the stored QR, the ticket job payload, and replay idempotency.
+
 ## API documentation
 
 Start the backend, then open `http://localhost:4000/api/docs/` for Swagger UI. The OpenAPI 3.1 JSON contract is available at `http://localhost:4000/api/openapi.json`. The document combines Better Auth's generated authentication operations with Ventra's users, events, ticketing, reservation, and check-in routes.
