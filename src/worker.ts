@@ -64,10 +64,20 @@ function closeWorkersWithinDeadline(workers: RuntimeWorkers): Promise<void> {
   });
 
   return Promise.race([
-    Promise.all([
+    Promise.allSettled([
       workers.authWorker.close(),
       workers.ticketWorker.close(),
-    ]).then(() => undefined),
+    ]).then((outcomes) => {
+      const failures = outcomes
+        .filter(
+          (outcome): outcome is PromiseRejectedResult =>
+            outcome.status === "rejected",
+        )
+        .map((outcome) => outcome.reason);
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "Worker close failed");
+      }
+    }),
     deadline,
   ]).finally(() => {
     if (timeout) clearTimeout(timeout);

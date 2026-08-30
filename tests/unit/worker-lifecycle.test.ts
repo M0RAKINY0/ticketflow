@@ -286,6 +286,55 @@ describe("worker lifecycle", () => {
     vi.useRealTimers();
   });
 
+  it("waits for both worker closes before tearing down queues", async () => {
+    const calls: string[] = [];
+    let releaseTicketClose: (() => void) | undefined;
+    const runtime = await startWorkerRuntime({
+      producerConnection: {
+        connect: async () => undefined,
+        quit: async () => undefined,
+      },
+      workerConnection: {
+        connect: async () => undefined,
+        quit: async () => undefined,
+      },
+      queues: {
+        close: async () => calls.push("close queues"),
+        ticketEmailQueue: { add: async () => undefined },
+      },
+      verifyDatabase: async () => undefined,
+      workers: {
+        authWorker: {
+          close: async () => {
+            throw new Error("auth close failed");
+          },
+        },
+        ticketWorker: {
+          close: async () =>
+            new Promise<void>((resolve) => {
+              releaseTicketClose = resolve;
+            }),
+        },
+      },
+      dispatcher: { run: async () => undefined },
+      startWorkers: () => undefined,
+      startDispatcher: () => undefined,
+      flushSentry: async () => undefined,
+      disconnectPrisma: async () => undefined,
+    });
+
+    const closing = runtime.close();
+    const closingAssertion = expect(closing).rejects.toThrow(
+      "Worker runtime shutdown failed",
+    );
+    await new Promise(setImmediate);
+    expect(calls).toEqual([]);
+
+    releaseTicketClose?.();
+    await closingAssertion;
+    expect(calls).toEqual(["close queues"]);
+  });
+
   it("exits successfully after a clean signal shutdown", async () => {
     const handlers = new Map<string, () => void>();
     const exit = vi.fn();
