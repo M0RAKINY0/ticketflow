@@ -42,6 +42,10 @@ enum TicketStatus {
   VOID
 }
 
+enum OutboxEventType {
+  TICKET_EMAIL_REQUESTED
+}
+
 model User {
   id            String        @id @default(uuid()) @db.Uuid
   email         String        @unique
@@ -151,6 +155,22 @@ model CheckIn {
 
   @@index([eventId, checkedInAt])
   @@index([checkedInById])
+}
+
+model OutboxEvent {
+  id            String          @id @default(uuid()) @db.Uuid
+  type          OutboxEventType
+  aggregateId   String          @db.Uuid
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  publishedAt   DateTime?       @db.Timestamptz(3)
+  lockedAt      DateTime?       @db.Timestamptz(3)
+  lockedBy      String?
+  attempts      Int             @default(0)
+  nextAttemptAt DateTime        @default(now()) @db.Timestamptz(3)
+  lastError     String?
+
+  @@unique([type, aggregateId])
+  @@index([publishedAt, nextAttemptAt, lockedAt])
 }
 
 model Session {

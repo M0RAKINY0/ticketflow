@@ -1,4 +1,4 @@
-import type { Prisma } from "../../generated/prisma/client.js";
+import { OutboxEventType, type Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../infrastructure/prisma.js";
 
 export const ticketingEventInclude = {
@@ -127,30 +127,23 @@ export const ticketingModel = {
     });
   },
 
-  findReservationTicketEmail(reservationId: string) {
-    return prisma.reservation.findUniqueOrThrow({
-      where: { id: reservationId },
-      select: {
-        user: { select: { email: true, name: true } },
-        event: { select: { title: true, startsAt: true, timezone: true } },
-        ticketType: { select: { name: true } },
-        ticket: {
-          select: {
-            id: true,
-            publicId: true,
-            qrCodeDataUrl: true,
-            emailSentAt: true,
-          },
-        },
-      },
-    });
-  },
-
-  markTicketEmailSent(ticketId: string, emailSentAt: Date) {
-    return prisma.ticket.updateMany({
-      where: { id: ticketId, emailSentAt: null },
-      data: { emailSentAt },
-    });
+  async ensureTicketEmailOutbox(ticketId: string): Promise<void> {
+    await prisma.$executeRaw`
+      WITH eligible_ticket AS (
+        SELECT "id"
+        FROM "Ticket"
+        WHERE "id" = ${ticketId}::uuid
+          AND "emailSentAt" IS NULL
+        FOR UPDATE
+      )
+      INSERT INTO "OutboxEvent" ("id", "type", "aggregateId")
+      SELECT
+        gen_random_uuid(),
+        ${OutboxEventType.TICKET_EMAIL_REQUESTED}::"OutboxEventType",
+        "id"
+      FROM eligible_ticket
+      ON CONFLICT ("type", "aggregateId") DO NOTHING
+    `;
   },
 
   listReservations(userId: string) {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { ticketEmailSender } from "../../src/infrastructure/email.js";
 import { prisma } from "../../src/infrastructure/prisma.js";
+import { ticketingModel } from "../../src/modules/ticketing/ticketing.model.js";
 import { issueTestJwt } from "../helpers/auth.js";
 
 const TEST_EMAIL_PREFIX = "ticketing-test-";
@@ -16,6 +17,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  await prisma.outboxEvent.deleteMany({
+    where: { type: "TICKET_EMAIL_REQUESTED" },
+  });
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_EMAIL_PREFIX } },
   });
@@ -91,6 +95,10 @@ async function reserve(
     .set(authorization(token))
     .set("Idempotency-Key", key)
     .send({ ticketTypeId });
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 describe("event and ticket type management", () => {
@@ -374,7 +382,7 @@ describe("event and ticket type management", () => {
 });
 
 describe("reservations and attendee tickets", () => {
-  it("creates one durable QR ticket and replays an idempotent reservation without consuming inventory twice", async () => {
+  it("creates one durable QR ticket and outbox event without sending email in the request", async () => {
     const owner = await createUser("reservation-owner", "USER");
     const attendee = await createUser("reservation-attendee", "USER");
     const createdEvent = await createEvent(owner.token, "Idempotent Show");
@@ -405,6 +413,9 @@ describe("reservations and attendee tickets", () => {
     const storedType = await prisma.ticketType.findUniqueOrThrow({
       where: { id: ticketTypeId },
     });
+    const outboxEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: ticketId },
+    });
     const reservations = await request(createApp())
       .get("/api/v1/me/reservations")
       .set(authorization(attendee.token));
@@ -431,17 +442,15 @@ describe("reservations and attendee tickets", () => {
     );
     expect(first.body.data.reservation.ticket.qrPayload).not.toContain(eventId);
     expect(storedTicket.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
-    expect(storedTicket.emailSentAt).toBeInstanceOf(Date);
-    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(1);
-    expect(ticketEmailSender.sendTicket).toHaveBeenCalledWith(
+    expect(storedTicket.emailSentAt).toBeNull();
+    expect(ticketEmailSender.sendTicket).not.toHaveBeenCalled();
+    expect(outboxEvents).toEqual([
       expect.objectContaining({
-        ticketId,
-        recipientEmail: attendee.user.email,
-        eventName: "Idempotent Show",
-        ticketTypeName: "General Admission",
-        qrCodeDataUrl: storedTicket.qrCodeDataUrl,
+        type: "TICKET_EMAIL_REQUESTED",
+        aggregateId: ticketId,
+        publishedAt: null,
       }),
-    );
+    ]);
     expect(storedType.reservedCount).toBe(1);
     expect(reservations.body.data.reservations).toEqual([
       expect.objectContaining({ id: reservationId }),
@@ -453,7 +462,53 @@ describe("reservations and attendee tickets", () => {
     expect(qr.body.data.qrCodeDataUrl).toBe(storedTicket.qrCodeDataUrl);
   });
 
-  it("keeps the reservation and retries ticket email delivery after a provider failure", async () => {
+  it("keeps one reservation, ticket, inventory increment, and outbox event across sequential replays", async () => {
+    const owner = await createUser("sequential-outbox-owner", "USER");
+    const attendee = await createUser("sequential-outbox-attendee", "USER");
+    const createdEvent = await createEvent(
+      owner.token,
+      "Sequential Outbox Show",
+    );
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId, {
+      capacity: 2,
+    });
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+
+    const first = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "sequential-outbox",
+    );
+    const replay = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "sequential-outbox",
+    );
+    const reservations = await prisma.reservation.findMany({
+      where: { userId: attendee.user.id },
+      include: { ticket: true },
+    });
+    const ticketId = reservations[0]?.ticket?.id;
+    const [ticketType, outboxEvents] = await Promise.all([
+      prisma.ticketType.findUniqueOrThrow({ where: { id: ticketTypeId } }),
+      ticketId
+        ? prisma.outboxEvent.findMany({ where: { aggregateId: ticketId } })
+        : Promise.resolve([]),
+    ]);
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(200);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]?.ticket).not.toBeNull();
+    expect(ticketType.reservedCount).toBe(1);
+    expect(outboxEvents).toHaveLength(1);
+  });
+
+  it("keeps one reservation, ticket, inventory increment, and outbox event across concurrent replays", async () => {
     const owner = await createUser("email-retry-owner", "USER");
     const attendee = await createUser("email-retry-attendee", "USER");
     const createdEvent = await createEvent(owner.token, "Retry Show");
@@ -461,66 +516,151 @@ describe("reservations and attendee tickets", () => {
     const createdType = await createTicketType(owner.token, eventId);
     const ticketTypeId = createdType.body.data.ticketType.id as string;
     await publishEvent(owner.token, eventId);
-    vi.mocked(ticketEmailSender.sendTicket)
-      .mockRejectedValueOnce(new Error("Resend unavailable"))
-      .mockResolvedValueOnce();
-
-    const failed = await reserve(
-      attendee.token,
-      eventId,
-      ticketTypeId,
-      "retry-ticket-email",
-    );
-    const retried = await reserve(
-      attendee.token,
-      eventId,
-      ticketTypeId,
-      "retry-ticket-email",
-    );
+    const responses = await Promise.all([
+      reserve(attendee.token, eventId, ticketTypeId, "concurrent-outbox"),
+      reserve(attendee.token, eventId, ticketTypeId, "concurrent-outbox"),
+    ]);
     const reservations = await prisma.reservation.findMany({
       where: { userId: attendee.user.id },
       include: { ticket: true },
     });
-
-    expect(failed.status).toBe(500);
-    expect(failed.body).toEqual({
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "Internal server error",
-      },
+    const ticketId = reservations[0]?.ticket?.id;
+    const outboxEvents = ticketId
+      ? await prisma.outboxEvent.findMany({ where: { aggregateId: ticketId } })
+      : [];
+    const ticketType = await prisma.ticketType.findUniqueOrThrow({
+      where: { id: ticketTypeId },
     });
-    expect(retried.status).toBe(200);
-    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(2);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      200, 201,
+    ]);
+    expect(ticketEmailSender.sendTicket).not.toHaveBeenCalled();
     expect(reservations).toHaveLength(1);
     expect(reservations[0]?.ticket).not.toBeNull();
+    expect(ticketType.reservedCount).toBe(1);
+    expect(outboxEvents).toHaveLength(1);
   });
 
-  it("retries delivery when a concurrent idempotent replay follows an email failure", async () => {
-    const owner = await createUser("email-race-owner", "USER");
-    const attendee = await createUser("email-race-attendee", "USER");
-    const createdEvent = await createEvent(owner.token, "Concurrent Show");
+  it("repairs a missing unsent ticket outbox event on replay", async () => {
+    const owner = await createUser("outbox-repair-owner", "USER");
+    const attendee = await createUser("outbox-repair-attendee", "USER");
+    const createdEvent = await createEvent(owner.token, "Outbox Repair Show");
     const eventId = createdEvent.body.data.event.id as string;
     const createdType = await createTicketType(owner.token, eventId);
     const ticketTypeId = createdType.body.data.ticketType.id as string;
     await publishEvent(owner.token, eventId);
-    vi.mocked(ticketEmailSender.sendTicket)
-      .mockRejectedValueOnce(new Error("Resend unavailable"))
-      .mockResolvedValueOnce();
+    const first = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "repair-outbox",
+    );
+    const ticketId = first.body.data.reservation.ticket.id as string;
+    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+    const replay = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "repair-outbox",
+    );
+    const repairedEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: ticketId },
+    });
 
-    const responses = await Promise.all([
-      reserve(attendee.token, eventId, ticketTypeId, "concurrent-email"),
-      reserve(attendee.token, eventId, ticketTypeId, "concurrent-email"),
-    ]);
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(200);
+    expect(ticketEmailSender.sendTicket).not.toHaveBeenCalled();
+    expect(repairedEvents).toHaveLength(1);
+    expect(repairedEvents[0]).toMatchObject({
+      type: "TICKET_EMAIL_REQUESTED",
+      aggregateId: ticketId,
+      publishedAt: null,
+    });
+  });
 
-    expect(
-      responses.filter((response) => response.status === 500),
-    ).toHaveLength(1);
-    expect(
-      responses.filter(
-        (response) => response.status >= 200 && response.status < 300,
-      ),
-    ).toHaveLength(1);
-    expect(ticketEmailSender.sendTicket).toHaveBeenCalledTimes(2);
+  it("does not recreate an outbox event after ticket email was sent", async () => {
+    const owner = await createUser("sent-outbox-owner", "USER");
+    const attendee = await createUser("sent-outbox-attendee", "USER");
+    const createdEvent = await createEvent(owner.token, "Sent Outbox Show");
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId);
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+
+    const first = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "sent-outbox",
+    );
+    const ticketId = first.body.data.reservation.ticket.id as string;
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { emailSentAt: new Date() },
+    });
+    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+
+    const replay = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "sent-outbox",
+    );
+    const outboxEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: ticketId },
+    });
+
+    expect(replay.status).toBe(200);
+    expect(outboxEvents).toHaveLength(0);
+  });
+
+  it("does not recreate an outbox event when a sent marker races replay repair", async () => {
+    const owner = await createUser("race-sent-owner", "USER");
+    const attendee = await createUser("race-sent-attendee", "USER");
+    const createdEvent = await createEvent(owner.token, "Race Sent Show");
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId);
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+
+    const first = await reserve(
+      attendee.token,
+      eventId,
+      ticketTypeId,
+      "race-sent-outbox",
+    );
+    const ticketId = first.body.data.reservation.ticket.id as string;
+    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+
+    let repairSettled = false;
+    let repair: Promise<void> | undefined;
+    await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT "id"
+        FROM "Ticket"
+        WHERE "id" = ${ticketId}::uuid
+        FOR UPDATE
+      `;
+
+      repair = ticketingModel.ensureTicketEmailOutbox(ticketId).then(() => {
+        repairSettled = true;
+      });
+      await wait(50);
+
+      expect(repairSettled).toBe(false);
+      await transaction.ticket.update({
+        where: { id: ticketId },
+        data: { emailSentAt: new Date() },
+      });
+    });
+    await repair;
+
+    const outboxEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: ticketId },
+    });
+
+    expect(outboxEvents).toHaveLength(0);
   });
 
   it("never exceeds capacity under concurrent reservations", async () => {
