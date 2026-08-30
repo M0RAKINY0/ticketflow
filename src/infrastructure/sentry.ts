@@ -52,3 +52,42 @@ export function setupSentryErrorHandler(app: Express): void {
     shouldHandleError: shouldReportError,
   });
 }
+
+export type BackgroundJobFailure = {
+  queueName: string;
+  jobName: string;
+  jobId: string | undefined;
+  attemptsMade: number;
+  attempts: number | undefined;
+  ticketId?: string;
+  error?: unknown;
+  jobData?: unknown;
+};
+
+export function reportBackgroundJobFailure(input: BackgroundJobFailure): void {
+  if (!Sentry.isInitialized()) return;
+
+  const context: {
+    jobId: string | undefined;
+    attemptsMade: number;
+    attempts: number | undefined;
+    ticketId?: string;
+  } = {
+    jobId: input.jobId,
+    attemptsMade: input.attemptsMade,
+    attempts: input.attempts,
+  };
+  if (input.ticketId) context.ticketId = input.ticketId;
+
+  Sentry.captureException(new Error("Background email job failed"), {
+    tags: {
+      queue: input.queueName,
+      job: input.jobName,
+    },
+    contexts: { background_job: context },
+  });
+}
+
+export async function flushSentry(timeoutMs = 2_000): Promise<void> {
+  if (Sentry.isInitialized()) await Sentry.flush(timeoutMs);
+}

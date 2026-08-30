@@ -5,6 +5,7 @@ import type { Env } from "../../src/config/env.js";
 import {
   createSentryOptions,
   initializeSentry,
+  reportBackgroundJobFailure,
   setupSentryErrorHandler,
   shouldReportError,
 } from "../../src/infrastructure/sentry.js";
@@ -13,6 +14,7 @@ import { AppError } from "../../src/shared/errors.js";
 const sentry = vi.hoisted(() => ({
   init: vi.fn(),
   isInitialized: vi.fn(),
+  captureException: vi.fn(),
   setupExpressErrorHandler: vi.fn(),
 }));
 
@@ -96,5 +98,63 @@ describe("Sentry error filtering", () => {
     expect(
       shouldReportError(new AppError(503, "UNAVAILABLE", "Unavailable")),
     ).toBe(true);
+  });
+});
+
+describe("background job reporting", () => {
+  it("reports only the safe job identifiers", () => {
+    sentry.isInitialized.mockReturnValue(true);
+
+    reportBackgroundJobFailure({
+      queueName: "ventra-ticket-email",
+      jobName: "send-ticket-confirmation",
+      jobId: "ticket-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+      attemptsMade: 5,
+      attempts: 5,
+      ticketId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+      error: new Error("recipient person@example.com otp 123456"),
+      jobData: {
+        email: "person@example.com",
+        otp: "123456",
+        qrPayload: "private-payload",
+        qrCodeDataUrl: "data:image/png;base64,private-image",
+      },
+    });
+
+    expect(sentry.captureException).toHaveBeenCalledOnce();
+    const [error, context] = sentry.captureException.mock.calls[0] ?? [];
+    expect(error).toEqual(new Error("Background email job failed"));
+    expect(context).toEqual({
+      tags: {
+        queue: "ventra-ticket-email",
+        job: "send-ticket-confirmation",
+      },
+      contexts: {
+        background_job: {
+          jobId: "ticket-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+          attemptsMade: 5,
+          attempts: 5,
+          ticketId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+        },
+      },
+    });
+    expect(JSON.stringify(sentry.captureException.mock.calls[0])).not.toMatch(
+      /person@example\\.com|123456|private-payload|private-image|jobData/,
+    );
+  });
+
+  it("does not capture background failures before Sentry is initialized", () => {
+    sentry.captureException.mockClear();
+    sentry.isInitialized.mockReturnValue(false);
+
+    reportBackgroundJobFailure({
+      queueName: "ventra-auth-email",
+      jobName: "send-verification-otp",
+      jobId: "otp-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+      attemptsMade: 3,
+      attempts: 3,
+    });
+
+    expect(sentry.captureException).not.toHaveBeenCalled();
   });
 });
