@@ -5,12 +5,17 @@ import {
   type OutboxRepository,
 } from "./outbox.dispatcher.js";
 
-export const outboxRepository: OutboxRepository = {
-  async claimBatch({ workerId, now, leaseExpiredAt, limit }) {
-    const batchLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+type OutboxDatabase = Pick<typeof prisma, "$transaction" | "outboxEvent">;
 
-    return prisma.$transaction(async (transaction) => {
-      const events = await transaction.$queryRaw<ClaimedOutboxEvent[]>`
+export function createOutboxRepository(
+  database: OutboxDatabase = prisma,
+): OutboxRepository {
+  return {
+    async claimBatch({ workerId, now, leaseExpiredAt, limit }) {
+      const batchLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+
+      return database.$transaction(async (transaction) => {
+        const events = await transaction.$queryRaw<ClaimedOutboxEvent[]>`
         SELECT "id", "aggregateId", "attempts"
         FROM "OutboxEvent"
         WHERE "publishedAt" IS NULL
@@ -21,39 +26,58 @@ export const outboxRepository: OutboxRepository = {
         FOR UPDATE SKIP LOCKED
       `;
 
-      if (events.length > 0) {
-        await transaction.outboxEvent.updateMany({
-          where: { id: { in: events.map((event) => event.id) } },
-          data: { lockedAt: now, lockedBy: workerId },
-        });
-      }
+        if (events.length > 0) {
+          await transaction.outboxEvent.updateMany({
+            where: { id: { in: events.map((event) => event.id) } },
+            data: { lockedAt: now, lockedBy: workerId },
+          });
+        }
 
-      return events;
-    });
-  },
+        return events.map((event) => ({
+          ...event,
+          lockedAt: now,
+          lockedBy: workerId,
+        }));
+      });
+    },
 
-  async markPublished(id, publishedAt) {
-    await prisma.outboxEvent.update({
-      where: { id },
-      data: {
-        publishedAt,
-        lockedAt: null,
-        lockedBy: null,
-        lastError: null,
-      },
-    });
-  },
+    async markPublished(event, publishedAt) {
+      const result = await database.outboxEvent.updateMany({
+        where: {
+          id: event.id,
+          publishedAt: null,
+          lockedAt: event.lockedAt,
+          lockedBy: event.lockedBy,
+        },
+        data: {
+          publishedAt,
+          lockedAt: null,
+          lockedBy: null,
+          lastError: null,
+        },
+      });
+      return result.count === 1;
+    },
 
-  async markFailed({ id, nextAttemptAt }) {
-    await prisma.outboxEvent.update({
-      where: { id },
-      data: {
-        attempts: { increment: 1 },
-        nextAttemptAt,
-        lastError: QUEUE_PUBLICATION_FAILURE,
-        lockedAt: null,
-        lockedBy: null,
-      },
-    });
-  },
-};
+    async markFailed({ event, nextAttemptAt }) {
+      const result = await database.outboxEvent.updateMany({
+        where: {
+          id: event.id,
+          publishedAt: null,
+          lockedAt: event.lockedAt,
+          lockedBy: event.lockedBy,
+        },
+        data: {
+          attempts: { increment: 1 },
+          nextAttemptAt,
+          lastError: QUEUE_PUBLICATION_FAILURE,
+          lockedAt: null,
+          lockedBy: null,
+        },
+      });
+      return result.count === 1;
+    },
+  };
+}
+
+export const outboxRepository = createOutboxRepository();

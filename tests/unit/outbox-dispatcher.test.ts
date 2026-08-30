@@ -5,10 +5,12 @@ import {
   createOutboxDispatcher,
   type OutboxRepository,
 } from "../../src/infrastructure/outbox/outbox.dispatcher.js";
+import { createOutboxRepository } from "../../src/infrastructure/outbox/outbox.repository.js";
 import { TICKET_JOB_OPTIONS } from "../../src/infrastructure/queues/email-queues.js";
 
 const aggregateId = "4c8fd57d-a993-4bd7-9943-4a6e22f913aa";
 const now = new Date("2030-06-15T18:30:00.000Z");
+const lease = new Date("2030-06-15T18:29:30.000Z");
 
 function setup() {
   const repository: OutboxRepository = {
@@ -17,6 +19,8 @@ function setup() {
         id: "outbox-event-1",
         aggregateId,
         attempts: 0,
+        lockedAt: lease,
+        lockedBy: "worker-1",
       },
     ]),
     markPublished: vi.fn().mockResolvedValue(undefined),
@@ -51,7 +55,13 @@ describe("outbox dispatcher", () => {
       { ...TICKET_JOB_OPTIONS, jobId: `ticket-email-${aggregateId}` },
     );
     expect(repository.markPublished).toHaveBeenCalledWith(
-      "outbox-event-1",
+      {
+        id: "outbox-event-1",
+        aggregateId,
+        attempts: 0,
+        lockedAt: lease,
+        lockedBy: "worker-1",
+      },
       now,
     );
   });
@@ -65,7 +75,13 @@ describe("outbox dispatcher", () => {
     await dispatcher.dispatchOnce();
 
     expect(repository.markFailed).toHaveBeenCalledWith({
-      id: "outbox-event-1",
+      event: {
+        id: "outbox-event-1",
+        aggregateId,
+        attempts: 0,
+        lockedAt: lease,
+        lockedBy: "worker-1",
+      },
       nextAttemptAt: new Date("2030-06-15T18:30:02.000Z"),
       lastError: "Queue publication failed",
     });
@@ -93,5 +109,97 @@ describe("outbox dispatcher", () => {
 
     expect(repository.claimBatch).toHaveBeenCalledTimes(1);
     expect(wait).toHaveBeenCalledWith(1_000, controller.signal);
+  });
+
+  it("does not let an expired worker overwrite a reclaimed lease", async () => {
+    const workerALease = new Date("2030-06-15T18:29:30.000Z");
+    const workerBLease = new Date("2030-06-15T18:30:01.000Z");
+    const row = {
+      id: "outbox-event-1",
+      publishedAt: null as Date | null,
+      lockedAt: workerBLease as Date | null,
+      lockedBy: "worker-b" as string | null,
+      attempts: 0,
+      nextAttemptAt: now,
+      lastError: null as string | null,
+    };
+    const updateMany = vi.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: typeof row;
+        data: Record<string, unknown>;
+      }) => {
+        const matchesLease =
+          row.id === where.id &&
+          row.publishedAt === where.publishedAt &&
+          row.lockedAt === where.lockedAt &&
+          row.lockedBy === where.lockedBy;
+        if (!matchesLease) return { count: 0 };
+
+        Object.assign(row, data);
+        return { count: 1 };
+      },
+    );
+    const repository = createOutboxRepository({
+      outboxEvent: { updateMany },
+    } as never);
+    const staleClaim = {
+      id: "outbox-event-1",
+      aggregateId,
+      attempts: 0,
+      lockedAt: workerALease,
+      lockedBy: "worker-a",
+    };
+    const workerBClaim = {
+      ...staleClaim,
+      lockedAt: workerBLease,
+      lockedBy: "worker-b",
+    };
+
+    const workerBPublished = await repository.markPublished(workerBClaim, now);
+
+    const published = await repository.markPublished(staleClaim, now);
+    const failed = await repository.markFailed({
+      event: staleClaim,
+      nextAttemptAt: new Date("2030-06-15T18:30:03.000Z"),
+      lastError: "Queue publication failed",
+    });
+
+    expect(workerBPublished).toBe(true);
+    expect(published).toBe(false);
+    expect(failed).toBe(false);
+    expect(row).toEqual({
+      id: "outbox-event-1",
+      publishedAt: now,
+      lockedAt: null,
+      lockedBy: null,
+      attempts: 0,
+      nextAttemptAt: now,
+      lastError: null,
+    });
+    expect(updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: {
+          id: "outbox-event-1",
+          publishedAt: null,
+          lockedAt: workerALease,
+          lockedBy: "worker-a",
+        },
+      }),
+    );
+    expect(updateMany).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        where: {
+          id: "outbox-event-1",
+          publishedAt: null,
+          lockedAt: workerALease,
+          lockedBy: "worker-a",
+        },
+      }),
+    );
   });
 });

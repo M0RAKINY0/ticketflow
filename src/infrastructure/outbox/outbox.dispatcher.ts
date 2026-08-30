@@ -9,6 +9,8 @@ export type ClaimedOutboxEvent = {
   id: string;
   aggregateId: string;
   attempts: number;
+  lockedAt: Date;
+  lockedBy: string;
 };
 
 export type OutboxRepository = {
@@ -18,12 +20,12 @@ export type OutboxRepository = {
     leaseExpiredAt: Date;
     limit: number;
   }): Promise<ClaimedOutboxEvent[]>;
-  markPublished(id: string, publishedAt: Date): Promise<void>;
+  markPublished(event: ClaimedOutboxEvent, publishedAt: Date): Promise<boolean>;
   markFailed(input: {
-    id: string;
+    event: ClaimedOutboxEvent;
     nextAttemptAt: Date;
     lastError: typeof QUEUE_PUBLICATION_FAILURE;
-  }): Promise<void>;
+  }): Promise<boolean>;
 };
 
 type TicketEmailQueue = {
@@ -94,11 +96,11 @@ export function createOutboxDispatcher({
               jobId: `ticket-email-${event.aggregateId}`,
             },
           );
-          await repository.markPublished(event.id, clock());
+          await repository.markPublished(event, clock());
         } catch {
           const failedAt = clock();
           await repository.markFailed({
-            id: event.id,
+            event,
             nextAttemptAt: new Date(
               failedAt.getTime() + calculateOutboxRetry(event.attempts + 1),
             ),
