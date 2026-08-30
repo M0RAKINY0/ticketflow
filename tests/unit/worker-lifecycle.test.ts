@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { startWorkerRuntime } from "../../src/worker.js";
+import {
+  installWorkerSignalHandlers,
+  startWorkerRuntime,
+} from "../../src/worker.js";
 
 describe("worker lifecycle", () => {
   it.each([
@@ -238,12 +241,77 @@ describe("worker lifecycle", () => {
 
     await closingAssertion;
     expect(calls).toEqual([
+      "close ticket worker",
       "close queues",
       "quit worker Redis",
       "flush Sentry",
       "disconnect Prisma",
     ]);
     vi.useRealTimers();
+  });
+
+  it("invokes the ticket close when the auth worker hangs", async () => {
+    vi.useFakeTimers();
+    const ticketClose = vi.fn(async () => undefined);
+    const runtime = await startWorkerRuntime({
+      producerConnection: {
+        connect: async () => undefined,
+        quit: async () => undefined,
+      },
+      workerConnection: {
+        connect: async () => undefined,
+        quit: async () => undefined,
+      },
+      queues: {
+        close: async () => undefined,
+        ticketEmailQueue: { add: async () => undefined },
+      },
+      verifyDatabase: async () => undefined,
+      workers: {
+        authWorker: { close: async () => new Promise<void>(() => undefined) },
+        ticketWorker: { close: ticketClose },
+      },
+      dispatcher: { run: async () => undefined },
+      startWorkers: () => undefined,
+      startDispatcher: () => undefined,
+      flushSentry: async () => undefined,
+      disconnectPrisma: async () => undefined,
+    });
+
+    const closing = runtime.close();
+    const closeAssertion = expect(closing).rejects.toThrow();
+    expect(ticketClose).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await closeAssertion;
+    vi.useRealTimers();
+  });
+
+  it("exits successfully after a clean signal shutdown", async () => {
+    const handlers = new Map<string, () => void>();
+    const exit = vi.fn();
+    installWorkerSignalHandlers(
+      { close: async () => undefined },
+      { once: (signal, handler) => handlers.set(signal, handler), exit },
+      vi.fn(),
+    );
+
+    handlers.get("SIGTERM")?.();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+  });
+
+  it("reports and exits nonzero after a failed signal shutdown", async () => {
+    const handlers = new Map<string, () => void>();
+    const exit = vi.fn();
+    const reportOperationalFailure = vi.fn();
+    installWorkerSignalHandlers(
+      { close: async () => Promise.reject(new Error("person@example.com")) },
+      { once: (signal, handler) => handlers.set(signal, handler), exit },
+      reportOperationalFailure,
+    );
+
+    handlers.get("SIGINT")?.();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+    expect(reportOperationalFailure).toHaveBeenCalledWith("worker-shutdown");
   });
 
   it("restarts a rejected dispatcher loop after a bounded delay", async () => {

@@ -101,3 +101,11 @@ export function reportWorkerRuntimeFailure(
     tags: { operation },
   });
 }
+
+export function reportQueueWorkerFailure(queueName: string): void {
+  if (!Sentry.isInitialized()) return;
+
+  Sentry.captureException(new Error("Background queue worker failed"), {
+    tags: { queue: queueName, operation: "worker-error" },
+  });
+}

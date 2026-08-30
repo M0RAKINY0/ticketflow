@@ -2,7 +2,10 @@ import { UnrecoverableError, Worker, type Job } from "bullmq";
 import type { Redis } from "ioredis";
 
 import { ticketEmailSender, verificationEmailSender } from "../email.js";
-import { reportBackgroundJobFailure } from "../sentry.js";
+import {
+  reportBackgroundJobFailure,
+  reportQueueWorkerFailure,
+} from "../sentry.js";
 import { createOtpProcessor } from "../../modules/notifications/otp.processor.js";
 import { createTicketEmailProcessor } from "../../modules/notifications/ticket-email.processor.js";
 import { ticketEmailRepository } from "../../modules/notifications/ticket-email.repository.js";
@@ -70,8 +73,14 @@ export function createEmailWorkers({
   authWorker.on("failed", (job, error) => {
     if (job) reportTerminalFailure(AUTH_EMAIL_QUEUE, job, error);
   });
+  authWorker.on("error", () => {
+    reportQueueWorkerFailure(AUTH_EMAIL_QUEUE);
+  });
   ticketWorker.on("failed", (job, error) => {
     if (job) reportTerminalFailure(TICKET_EMAIL_QUEUE, job, error);
+  });
+  ticketWorker.on("error", () => {
+    reportQueueWorkerFailure(TICKET_EMAIL_QUEUE);
   });
 
   return { authWorker, ticketWorker };

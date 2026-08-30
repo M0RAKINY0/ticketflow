@@ -64,10 +64,10 @@ function closeWorkersWithinDeadline(workers: RuntimeWorkers): Promise<void> {
   });
 
   return Promise.race([
-    (async () => {
-      await workers.authWorker.close();
-      await workers.ticketWorker.close();
-    })(),
+    Promise.all([
+      workers.authWorker.close(),
+      workers.ticketWorker.close(),
+    ]).then(() => undefined),
     deadline,
   ]).finally(() => {
     if (timeout) clearTimeout(timeout);
@@ -248,13 +248,34 @@ export async function startWorkerRuntime(
   };
 }
 
-async function runWorkerProcess(): Promise<void> {
-  const runtime = await startWorkerRuntime();
+type SignalProcess = {
+  once(signal: "SIGINT" | "SIGTERM", handler: () => void): unknown;
+  exit(code?: number): never | void;
+};
+
+export function installWorkerSignalHandlers(
+  runtime: WorkerRuntime,
+  processRef: SignalProcess = process,
+  reportFailure: OperationalReporter = reportWorkerRuntimeFailure,
+): void {
+  let stopping = false;
   const shutdown = () => {
-    void runtime.close().finally(() => process.exit());
+    if (stopping) return;
+    stopping = true;
+    void runtime.close().then(
+      () => processRef.exit(0),
+      () => {
+        reportFailure("worker-shutdown");
+        processRef.exit(1);
+      },
+    );
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  processRef.once("SIGINT", shutdown);
+  processRef.once("SIGTERM", shutdown);
+}
+
+async function runWorkerProcess(): Promise<void> {
+  installWorkerSignalHandlers(await startWorkerRuntime());
 }
 
 const entryPoint = process.argv[1];

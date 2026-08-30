@@ -6,6 +6,7 @@ import {
   createSentryOptions,
   initializeSentry,
   reportBackgroundJobFailure,
+  reportQueueWorkerFailure,
   reportWorkerRuntimeFailure,
   setupSentryErrorHandler,
   shouldReportError,
@@ -168,6 +169,18 @@ describe("background job reporting", () => {
     expect(sentry.captureException).toHaveBeenCalledWith(
       new Error("Background worker operation failed"),
       { tags: { operation: "outbox-dispatcher" } },
+    );
+  });
+
+  it("reports a queue worker error without its provider error", () => {
+    sentry.captureException.mockClear();
+    sentry.isInitialized.mockReturnValue(true);
+
+    reportQueueWorkerFailure("ventra-auth-email");
+
+    expect(sentry.captureException).toHaveBeenCalledWith(
+      new Error("Background queue worker failed"),
+      { tags: { queue: "ventra-auth-email", operation: "worker-error" } },
     );
   });
 });
