@@ -1,6 +1,6 @@
 # BullMQ Email Jobs Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Move OTP and ticket-confirmation delivery into durable BullMQ workers while preserving synchronous QR generation and reliable reservation commits.
 
@@ -83,7 +83,7 @@
 - Produces: `createEmailQueues(connection)` returning `{ authEmailQueue, ticketEmailQueue, close() }`.
 - Produces: `OTP_JOB_OPTIONS` and `TICKET_JOB_OPTIONS` as BullMQ `JobsOptions`.
 
-- [ ] **Step 1: Install BullMQ 6.3.1**
+- [x] **Step 1: Install BullMQ 6.3.1**
 
 Run:
 
@@ -93,7 +93,7 @@ npm install bullmq@6.3.1
 
 Expected: `bullmq` appears in `dependencies` and the lockfile resolves version `6.3.1`.
 
-- [ ] **Step 2: Write the failing queue contract tests**
+- [x] **Step 2: Write the failing queue contract tests**
 
 Create `tests/unit/queue-contracts.test.ts` with assertions that:
 
@@ -125,7 +125,7 @@ expect(TICKET_JOB_OPTIONS).toMatchObject({
 });
 ```
 
-- [ ] **Step 3: Run the tests and verify the missing-module failure**
+- [x] **Step 3: Run the tests and verify the missing-module failure**
 
 Run:
 
@@ -135,7 +135,7 @@ npx vitest run tests/unit/queue-contracts.test.ts
 
 Expected: FAIL because the queue contract modules do not exist.
 
-- [ ] **Step 4: Implement the contracts and queue factories**
+- [x] **Step 4: Implement the contracts and queue factories**
 
 Use these exact queue names and payload shapes in `contracts.ts`:
 
@@ -169,7 +169,7 @@ export function createQueueWorkerConnection(url: string): Redis {
 
 In `email-queues.ts`, pass `prefix: "ventra:queue"` to both `Queue` instances and expose a `close` method that closes both queues before quitting the producer connection.
 
-- [ ] **Step 5: Configure Redis against eviction**
+- [x] **Step 5: Configure Redis against eviction**
 
 Change the Compose command to:
 
@@ -177,7 +177,7 @@ Change the Compose command to:
 command: redis-server --appendonly yes --maxmemory-policy noeviction
 ```
 
-- [ ] **Step 6: Run focused tests and type checking**
+- [x] **Step 6: Run focused tests and type checking**
 
 Run:
 
@@ -188,7 +188,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the queue foundation**
+- [x] **Step 7: Commit the queue foundation**
 
 ```bash
 git add package.json package-lock.json compose.yml src/infrastructure/queues tests/unit/queue-contracts.test.ts
@@ -217,7 +217,7 @@ git commit -m "Add BullMQ email queue foundation" -m "Define validated email job
 - Produces: `createOtpProducer(queue, secret, clock?, idFactory?): VerificationOtpProducer`.
 - Produces: `createOtpProcessor({ secret, sender, clock? }): (job: Job) => Promise<void>`.
 
-- [ ] **Step 1: Write failing encryption tests**
+- [x] **Step 1: Write failing encryption tests**
 
 Test round-trip encryption, random nonces, ciphertext that excludes both email and OTP, authentication failure after changing one ciphertext byte, and expiry at exactly `expiresAt`. Use literal inputs and a fixed clock:
 
@@ -238,7 +238,7 @@ expect(
 ).toEqual({ email: "person@example.com", otp: "123456" });
 ```
 
-- [ ] **Step 2: Verify the encryption tests fail**
+- [x] **Step 2: Verify the encryption tests fail**
 
 Run:
 
@@ -248,11 +248,11 @@ npx vitest run tests/unit/otp-envelope.test.ts
 
 Expected: FAIL because `otp-envelope.ts` does not exist.
 
-- [ ] **Step 3: Implement the encrypted envelope**
+- [x] **Step 3: Implement the encrypted envelope**
 
 Derive a 32-byte key with `hkdfSync("sha256", secret, "", "ventra-otp-job-v1", 32)`. Encrypt JSON with `aes-256-gcm`, a random 12-byte IV, and Base64URL fields. Set `expiresAt` to four minutes after `now`. Throw `UnrecoverableError("OTP job expired")` for expiry and `UnrecoverableError("OTP job cannot be decrypted")` for authentication failure. Never include the envelope, email, or OTP in either message.
 
-- [ ] **Step 4: Write failing producer and processor tests**
+- [x] **Step 4: Write failing producer and processor tests**
 
 Use a fake queue that records `add` calls and the real encryption functions. Assert:
 
@@ -269,7 +269,7 @@ expect(JSON.stringify(addCall.data)).not.toContain("123456");
 
 For the processor, use a fake `VerificationEmailSender`. Assert that a valid job sends once, an expired job never sends, and a malformed job never sends.
 
-- [ ] **Step 5: Verify producer and processor tests fail**
+- [x] **Step 5: Verify producer and processor tests fail**
 
 Run:
 
@@ -279,7 +279,7 @@ npx vitest run tests/unit/otp-processor.test.ts
 
 Expected: FAIL because producer and processor modules do not exist.
 
-- [ ] **Step 6: Implement producer and processor**
+- [x] **Step 6: Implement producer and processor**
 
 `createOtpProducer` encrypts the payload and calls:
 
@@ -292,7 +292,7 @@ await queue.add("send-verification-otp", payload, {
 
 The processor must parse the job data before decryption, require `job.name === "send-verification-otp"`, decrypt, and call the existing `VerificationEmailSender.sendVerificationOtp`.
 
-- [ ] **Step 7: Replace Better Auth's direct sender dependency**
+- [x] **Step 7: Replace Better Auth's direct sender dependency**
 
 Change `createAuth` options from `emailSender?: VerificationEmailSender` to `otpProducer?: VerificationOtpProducer`. Preserve the test-mode no-op default. The callback becomes:
 
@@ -303,7 +303,7 @@ await otpProducer.enqueue(email, otp);
 
 Update auth integration tests to inject a producer that records calls. Assert the HTTP route queues the expected recipient without asserting or logging the OTP value.
 
-- [ ] **Step 8: Run OTP and auth tests**
+- [x] **Step 8: Run OTP and auth tests**
 
 Run:
 
@@ -314,7 +314,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit encrypted OTP jobs**
+- [x] **Step 9: Commit encrypted OTP jobs**
 
 ```bash
 git add src/infrastructure/auth.ts src/modules/notifications tests/unit/otp-envelope.test.ts tests/unit/otp-processor.test.ts tests/integration/auth.test.ts
@@ -339,7 +339,7 @@ git commit -m "Queue encrypted OTP email jobs" -m "Encrypt short-lived OTP deliv
 - Produces: `ticketingModel.ensureTicketEmailOutbox(ticketId: string): Promise<void>` for replay repair.
 - Removes: synchronous `ticketEmailSender` calls from reservation creation and replay.
 
-- [ ] **Step 1: Write the failing reservation outbox tests**
+- [x] **Step 1: Write the failing reservation outbox tests**
 
 Change reservation integration tests to assert that:
 
@@ -349,7 +349,7 @@ Change reservation integration tests to assert that:
 - a sequential replay and two concurrent same-key requests still leave one reservation, one ticket, one inventory increment, and one outbox row
 - removing the outbox row for an unsent ticket and replaying the reservation recreates one row
 
-- [ ] **Step 2: Run the reservation tests and verify failure**
+- [x] **Step 2: Run the reservation tests and verify failure**
 
 Run:
 
@@ -359,7 +359,7 @@ npx vitest run tests/integration/ticketing.test.ts -t "outbox|reservation" --max
 
 Expected: FAIL because `OutboxEvent` does not exist and the API still sends email synchronously.
 
-- [ ] **Step 3: Add the Prisma outbox model**
+- [x] **Step 3: Add the Prisma outbox model**
 
 Add:
 
@@ -387,7 +387,7 @@ model OutboxEvent {
 
 Generate a forward-only migration. Apply it to development and test databases without resetting either database, then regenerate Prisma.
 
-- [ ] **Step 4: Write the outbox row inside the reservation transaction**
+- [x] **Step 4: Write the outbox row inside the reservation transaction**
 
 Generate `ticketId` before the transaction. Pass it into the nested ticket create and add this write before the transaction returns:
 
@@ -402,7 +402,7 @@ await transaction.outboxEvent.create({
 
 Delete synchronous email delivery from both new and replay paths. Implement replay repair with a Prisma `upsert` keyed by `type_aggregateId`, but skip it when `Ticket.emailSentAt` is non-null.
 
-- [ ] **Step 5: Run reservation tests and Prisma checks**
+- [x] **Step 5: Run reservation tests and Prisma checks**
 
 Run:
 
@@ -414,7 +414,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the transactional outbox**
+- [x] **Step 6: Commit the transactional outbox**
 
 ```bash
 git add prisma src/modules/ticketing tests/integration/ticketing.test.ts
@@ -438,7 +438,7 @@ git commit -m "Create ticket email outbox transactionally" -m "Commit one ticket
 - Produces: `TicketEmailRepository` with `findDelivery(ticketId)` and `markSent(ticketId, sentAt)`.
 - Produces: `createTicketEmailProcessor({ repository, sender, clock? }): (job: Job) => Promise<void>`.
 
-- [ ] **Step 1: Write failing processor tests**
+- [x] **Step 1: Write failing processor tests**
 
 Use a fake repository with a complete delivery fixture and the real `createTicketEmailSender` backed by a fake transport. Assert:
 
@@ -449,7 +449,7 @@ Use a fake repository with a complete delivery fixture and the real `createTicke
 - an unknown job name or invalid UUID fails before any repository write
 - a Resend error throws an ordinary `Error`, allowing BullMQ retries
 
-- [ ] **Step 2: Verify the processor tests fail**
+- [x] **Step 2: Verify the processor tests fail**
 
 Run:
 
@@ -459,15 +459,15 @@ npx vitest run tests/unit/ticket-email-processor.test.ts
 
 Expected: FAIL because the processor and repository do not exist.
 
-- [ ] **Step 3: Implement the repository projection**
+- [x] **Step 3: Implement the repository projection**
 
 Move the ticket-email projection and `emailSentAt` update from `ticketing.model.ts` into `ticket-email.repository.ts`. The projection must select only ticket ID, public ID, QR data URL, `emailSentAt`, attendee email and name, event title/start/timezone, and ticket type name.
 
-- [ ] **Step 4: Implement the processor**
+- [x] **Step 4: Implement the processor**
 
 Parse `{ ticketId }`, load the projection, short-circuit sent tickets, send with the existing `TicketEmailSender`, and call `markSent(ticketId, clock())`. Do not pass BullMQ job metadata into Resend or the database.
 
-- [ ] **Step 5: Run processor and email tests**
+- [x] **Step 5: Run processor and email tests**
 
 Run:
 
@@ -478,7 +478,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the ticket processor**
+- [x] **Step 6: Commit the ticket processor**
 
 ```bash
 git add src/modules/notifications src/modules/ticketing/ticketing.model.ts tests/unit/ticket-email-processor.test.ts
@@ -502,7 +502,7 @@ git commit -m "Process ticket emails idempotently" -m "Load ticket delivery data
 - Produces: `calculateOutboxRetry(attempts: number): number` returning milliseconds capped at `300_000`.
 - Produces: `createOutboxDispatcher({ repository, queue, workerId, clock? })` with `dispatchOnce(limit?: number)` and `run(signal, intervalMs?)`.
 
-- [ ] **Step 1: Write failing dispatcher tests**
+- [x] **Step 1: Write failing dispatcher tests**
 
 Use fake repository and queue implementations. Assert:
 
@@ -514,7 +514,7 @@ expect(calculateOutboxRetry(9)).toBe(300_000);
 
 Assert that `dispatchOnce` publishes `send-ticket-confirmation` with `{ ticketId: aggregateId }`, `jobId: ticket-email-<aggregateId>`, and `TICKET_JOB_OPTIONS`, then marks the event published. A queue rejection must call `markFailed` with `lastError: "Queue publication failed"` and must not include the thrown provider text.
 
-- [ ] **Step 2: Verify dispatcher tests fail**
+- [x] **Step 2: Verify dispatcher tests fail**
 
 Run:
 
@@ -524,17 +524,17 @@ npx vitest run tests/unit/outbox-dispatcher.test.ts
 
 Expected: FAIL because the dispatcher does not exist.
 
-- [ ] **Step 3: Implement PostgreSQL leasing**
+- [x] **Step 3: Implement PostgreSQL leasing**
 
 `claimBatch` runs one short Prisma transaction. Use `SELECT ... FOR UPDATE SKIP LOCKED` to select unpublished rows where `nextAttemptAt <= now` and `lockedAt IS NULL OR lockedAt < leaseExpiredAt`. Update the selected rows with `lockedAt = now` and `lockedBy = workerId`, then return them. Never call Redis inside this transaction.
 
 `markPublished` sets `publishedAt`, clears the lease and `lastError`. `markFailed` increments `attempts`, sets `nextAttemptAt`, stores the sanitized constant, and clears the lease.
 
-- [ ] **Step 4: Implement the dispatcher loop**
+- [x] **Step 4: Implement the dispatcher loop**
 
 `dispatchOnce` handles each claimed event independently so one failed publish does not block the rest. `run` repeatedly calls it until `AbortSignal.aborted`, using an injectable interval wait so tests do not sleep.
 
-- [ ] **Step 5: Run dispatcher tests and type checking**
+- [x] **Step 5: Run dispatcher tests and type checking**
 
 Run:
 
@@ -545,7 +545,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the dispatcher**
+- [x] **Step 6: Commit the dispatcher**
 
 ```bash
 git add src/infrastructure/outbox tests/unit/outbox-dispatcher.test.ts
@@ -570,11 +570,11 @@ git commit -m "Dispatch ticket email outbox events" -m "Lease pending PostgreSQL
 - Produces: `reportBackgroundJobFailure(input): void` with sanitized tags and context.
 - Produces: `startWorkerRuntime(dependencies?): Promise<{ close(): Promise<void> }>`.
 
-- [ ] **Step 1: Write failing Sentry sanitization tests**
+- [x] **Step 1: Write failing Sentry sanitization tests**
 
 Extend Sentry unit tests with an injected capture function. Assert that the captured event includes queue name, job name, job ID, attempt count, and ticket ID only. Assert that JSON serialization excludes `email`, `otp`, `qrPayload`, `qrCodeDataUrl`, and the original job data object.
 
-- [ ] **Step 2: Verify Sentry tests fail**
+- [x] **Step 2: Verify Sentry tests fail**
 
 Run:
 
@@ -584,11 +584,11 @@ npx vitest run tests/unit/sentry.test.ts
 
 Expected: FAIL because `reportBackgroundJobFailure` does not exist.
 
-- [ ] **Step 3: Implement background failure reporting**
+- [x] **Step 3: Implement background failure reporting**
 
 Create a new sanitized `Error("Background email job failed")`, attach queue/job tags and allowed scalar context, and pass it to Sentry only when initialized. Do not attach the processor error as `cause` because provider errors may contain recipient data.
 
-- [ ] **Step 4: Write failing lifecycle tests**
+- [x] **Step 4: Write failing lifecycle tests**
 
 Create fake resources that record calls. Assert startup order:
 
@@ -614,7 +614,7 @@ disconnect Prisma
 
 Assert repeated `close()` calls are harmless.
 
-- [ ] **Step 5: Verify lifecycle tests fail**
+- [x] **Step 5: Verify lifecycle tests fail**
 
 Run:
 
@@ -624,13 +624,13 @@ npx vitest run tests/unit/worker-lifecycle.test.ts
 
 Expected: FAIL because `src/worker.ts` does not exist.
 
-- [ ] **Step 6: Build BullMQ workers and runtime**
+- [x] **Step 6: Build BullMQ workers and runtime**
 
 Create one BullMQ `Worker` per queue with `prefix: "ventra:queue"`. Validate every job inside its processor. Register `failed` handlers that call `reportBackgroundJobFailure` only after `attemptsMade >= opts.attempts` or for `UnrecoverableError`.
 
 `startWorkerRuntime` must verify PostgreSQL with `prisma.$queryRaw\`SELECT 1\``, connect both Redis roles, start workers, and launch the outbox loop. Register `SIGINT`and`SIGTERM`only in the executable entry-point block. Use a 30-second application shutdown timeout around BullMQ`worker.close()` calls.
 
-- [ ] **Step 7: Add worker scripts**
+- [x] **Step 7: Add worker scripts**
 
 Add:
 
@@ -639,7 +639,7 @@ Add:
 "worker:start": "node --import ./dist/instrument.js dist/worker.js"
 ```
 
-- [ ] **Step 8: Run worker and integration tests**
+- [x] **Step 8: Run worker and integration tests**
 
 Run:
 
@@ -652,7 +652,7 @@ npm run build
 
 Expected: PASS and `dist/worker.js` exists.
 
-- [ ] **Step 9: Commit the worker runtime**
+- [x] **Step 9: Commit the worker runtime**
 
 ```bash
 git add src/infrastructure/queues src/infrastructure/sentry.ts src/worker.ts package.json package-lock.json tests/unit/worker-lifecycle.test.ts tests/unit/sentry.test.ts
@@ -674,7 +674,7 @@ git commit -m "Run BullMQ email workers" -m "Start isolated OTP and ticket consu
 - Consumes: all runtime commands, queue names, retention rules, and failure behavior from Tasks 1 through 6.
 - Produces: operator instructions matching the final code.
 
-- [ ] **Step 1: Update README architecture and commands**
+- [x] **Step 1: Update README architecture and commands**
 
 Document:
 
@@ -689,11 +689,11 @@ Document:
 - Sentry's sanitized final-failure reporting
 - the absence of Railway configuration in this change
 
-- [ ] **Step 2: Apply migrations to both local databases**
+- [x] **Step 2: Apply migrations to both local databases**
 
 Run the existing migration command once with the development URL and once with `NODE_ENV=test` and `TEST_DATABASE_URL`. Do not reset either database. Confirm `prisma migrate status` reports every migration applied.
 
-- [ ] **Step 3: Run the complete verification suite**
+- [x] **Step 3: Run the complete verification suite**
 
 Run:
 
@@ -708,7 +708,7 @@ git diff --check
 
 Expected: all tests pass, type checking exits zero, build exits zero, changed files pass formatting, and the diff has no whitespace errors.
 
-- [ ] **Step 4: Review the final diff against the spec**
+- [x] **Step 4: Review the final diff against the spec**
 
 Confirm each of these with code or a test:
 
@@ -721,7 +721,7 @@ Confirm each of these with code or a test:
 - Worker shutdown closes BullMQ before Redis and Prisma.
 - No Railway or RabbitMQ files exist in the diff.
 
-- [ ] **Step 5: Commit documentation and verification updates**
+- [x] **Step 5: Commit documentation and verification updates**
 
 ```bash
 git add README.md docs/superpowers/plans/2026-08-29-bullmq-email-jobs.md .env.example

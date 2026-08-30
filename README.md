@@ -2,7 +2,7 @@
 
 This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, Better Auth, and Sentry. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
-The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. Redis stores short-lived authentication data. There is no job worker, payment system, or Nginx layer.
+The frontend lives in a separate repository. This repository owns the API, database schema, migrations, backend tests, and the email worker. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. Redis stores short-lived authentication data and BullMQ jobs. There is no payment system, Nginx layer, Railway configuration, or RabbitMQ integration.
 
 ## Capabilities
 
@@ -12,7 +12,7 @@ The frontend lives in a separate repository. This repository owns the API, datab
 - Paginated public discovery of upcoming published events by search, category, date, and country.
 - Atomic capacity enforcement and per-user idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
-- Ticket delivery through Resend with the QR displayed inline and attached as a PNG.
+- Ticket delivery through Resend with the QR displayed inline and attached as a PNG, handled asynchronously after reservation.
 - Attendee reservation, ticket, and QR retrieval.
 - Event-owner/admin ticket validation with exactly-once check-in.
 - Stable `{ "data": ... }` success and `{ "error": { "code", "message" } }` error envelopes.
@@ -59,7 +59,10 @@ docker compose up -d redis
 npm run prisma:generate
 npm run prisma:migrate
 npm run dev
+npm run worker:dev
 ```
+
+Run `npm run dev` and `npm run worker:dev` in separate terminals. The API accepts HTTP traffic. The worker publishes pending ticket-email outbox records and sends ticket and OTP emails. Redis must use `maxmemory-policy noeviction`; the included Compose configuration already sets it. BullMQ can lose work if Redis evicts queue keys.
 
 Useful verification commands:
 
@@ -83,6 +86,8 @@ Set `SENTRY_DSN` to enable backend error reporting. Leave it unset to run withou
 Sentry receives unexpected server errors and application errors with a status of 500 or higher. Ventra does not report expected client errors such as validation failures, denied origins, malformed JSON, missing resources, or authorization failures. The integration keeps `sendDefaultPii` disabled and performance tracing set to zero. Ventra's existing JSON error responses do not change.
 
 The development and production commands preload `src/instrument.ts` or its compiled output before starting the server. This gives the Sentry SDK a chance to initialize before application modules load. Keep the populated DSN in `.env` or the deployment secret manager; never commit it.
+
+The email worker reports final job failures to Sentry with queue name, job name, job ID, attempt counts, and, for ticket jobs, the ticket ID. It never sends recipient addresses, OTPs, QR data, email content, or raw job data to Sentry.
 
 ## HTTP composition
 
@@ -118,7 +123,7 @@ Public registration always creates a `USER`, even if the request supplies a role
 
 `phoneNumber` is optional. Better Auth sessions last 30 days and update their activity timestamp once per day. Production cookies use `Secure`. Google and Better Auth secrets belong in `.env` or the deployment secret manager and must never be committed.
 
-Password signup sends a six-digit verification code through Resend. The code expires after five minutes and becomes invalid after three incorrect attempts. Signup does not create a session until the email is verified through `POST /api/v1/auth/email-otp/verify-email`. Clients can request another verification code through `POST /api/v1/auth/email-otp/send-verification-otp`. Passwordless email sign-in is not supported. Google sign-in is unchanged.
+Password signup queues a six-digit verification email for delivery through Resend. Queue records contain an AES-256-GCM encrypted envelope, not the recipient address or code in plaintext. The queued envelope expires after four minutes. Better Auth's code expires after five minutes and becomes invalid after three incorrect attempts. Signup does not create a session until the email is verified through `POST /api/v1/auth/email-otp/verify-email`. Clients can request another verification code through `POST /api/v1/auth/email-otp/send-verification-otp`. Passwordless email sign-in is not supported. Google sign-in is unchanged.
 
 Redis stores OTP verification records and shared Better Auth rate-limit counters under the `ventra:auth:` prefix. User sessions remain in PostgreSQL. The API refuses to start when Redis is unavailable.
 
@@ -158,7 +163,11 @@ Reservation requests require an `Idempotency-Key` header and a JSON body:
 
 The first successful request returns `201`; replaying the same user, key, event, and ticket type returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`.
 
-After the reservation transaction commits, Ventra sends the attendee a ticket email through Resend. The email contains the event and ticket details, displays the QR code inline, and attaches the same QR as a PNG. The ticket remains available through the authenticated ticket endpoints. Ventra records successful delivery in PostgreSQL and uses `ticket-confirmation/<ticket-id>` as the Resend idempotency key. A replay skips an email already recorded as sent. If delivery failed, replaying the same reservation request retries the email without creating another reservation or consuming more inventory.
+Ventra generates and stores the QR before the reservation transaction. That work remains synchronous. The same transaction creates the reservation, its `READY` ticket, and a ticket-email outbox record. The API returns once PostgreSQL commits, so a Redis or Resend outage does not invalidate the reservation.
+
+The worker leases pending outbox rows and publishes `{ ticketId }` jobs to `ventra-ticket-email`. It retries publication after Redis failures and uses a stable `ticket-email-<ticket-id>` BullMQ job ID. The ticket processor loads the QR and attendee details from PostgreSQL, sends the email through Resend, and records `Ticket.emailSentAt`. Replays repair a missing unsent outbox record without creating another reservation.
+
+Ticket jobs make five attempts with exponential backoff beginning at five seconds. Completed jobs stay for 24 hours with a 1,000-job limit. Failed jobs stay for seven days with a 5,000-job limit. OTP jobs make three attempts one second apart, then BullMQ removes them. OTP failures and ticket final failures get sanitized Sentry reports.
 
 Check-in requests accept the payload read from the ticket's QR code:
 
