@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { Redis } from "ioredis";
 
@@ -14,7 +14,10 @@ import {
 } from "./infrastructure/queues/connections.js";
 import { createEmailQueues } from "./infrastructure/queues/email-queues.js";
 import { createEmailWorkers } from "./infrastructure/queues/email-workers.js";
-import { flushSentry } from "./infrastructure/sentry.js";
+import {
+  flushSentry,
+  reportWorkerRuntimeFailure,
+} from "./infrastructure/sentry.js";
 
 const WORKER_SHUTDOWN_TIMEOUT_MS = 30_000;
 
@@ -26,6 +29,10 @@ type Queues = Pick<
 >;
 type RuntimeWorkers = { authWorker: Closable; ticketWorker: Closable };
 type Dispatcher = { run(signal: AbortSignal): Promise<void> };
+type OperationalReporter = (
+  operation: "outbox-dispatcher" | "worker-shutdown",
+) => void;
+type DispatcherRestartWait = (signal: AbortSignal) => Promise<void>;
 
 export type WorkerRuntime = { close(): Promise<void> };
 
@@ -43,6 +50,8 @@ export type WorkerRuntimeDependencies = {
   startDispatcher?: () => void;
   flushSentry?: () => Promise<void>;
   disconnectPrisma?: () => Promise<void>;
+  reportOperationalFailure?: OperationalReporter;
+  waitForDispatcherRestart?: DispatcherRestartWait;
 };
 
 function closeWorkersWithinDeadline(workers: RuntimeWorkers): Promise<void> {
@@ -65,6 +74,54 @@ function closeWorkersWithinDeadline(workers: RuntimeWorkers): Promise<void> {
   });
 }
 
+function waitForDispatcherRestart(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 1_000);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+async function superviseDispatcher(
+  dispatcher: Dispatcher,
+  signal: AbortSignal,
+  reportFailure: OperationalReporter,
+  waitForRestart: DispatcherRestartWait,
+): Promise<void> {
+  while (!signal.aborted) {
+    try {
+      await dispatcher.run(signal);
+      if (!signal.aborted) await waitForRestart(signal);
+    } catch {
+      if (signal.aborted) return;
+      reportFailure("outbox-dispatcher");
+      await waitForRestart(signal);
+    }
+  }
+}
+
+async function runCleanupSteps(
+  steps: Array<() => Promise<void>>,
+  reportFailure?: OperationalReporter,
+): Promise<unknown[]> {
+  const failures: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      failures.push(error);
+      reportFailure?.("worker-shutdown");
+    }
+  }
+  return failures;
+}
+
 export async function startWorkerRuntime(
   dependencies: WorkerRuntimeDependencies = {},
 ): Promise<WorkerRuntime> {
@@ -78,48 +135,113 @@ export async function startWorkerRuntime(
   const flush = dependencies.flushSentry ?? (() => flushSentry());
   const disconnect =
     dependencies.disconnectPrisma ?? (() => prisma.$disconnect());
+  const reportOperationalFailure =
+    dependencies.reportOperationalFailure ?? reportWorkerRuntimeFailure;
+  const restartWait =
+    dependencies.waitForDispatcherRestart ?? waitForDispatcherRestart;
   const abortController = new AbortController();
+  let queues: Queues | undefined;
+  let workers: RuntimeWorkers | undefined;
+  let producerConnectionAttempted = false;
+  let workerConnectionAttempted = false;
+  let databaseAttempted = false;
 
-  await producerConnection.connect();
-  await workerConnection.connect();
-  await verifyDatabase();
-  const queues =
-    dependencies.queues ??
-    (dependencies.createQueues ?? createEmailQueues)(
-      producerConnection as Redis,
+  try {
+    producerConnectionAttempted = true;
+    await producerConnection.connect();
+    workerConnectionAttempted = true;
+    await workerConnection.connect();
+    databaseAttempted = true;
+    await verifyDatabase();
+    queues =
+      dependencies.queues ??
+      (dependencies.createQueues ?? createEmailQueues)(
+        producerConnection as Redis,
+      );
+    workers =
+      dependencies.workers ??
+      (
+        dependencies.createWorkers ??
+        ((connection) =>
+          createEmailWorkers({ connection, otpSecret: env.BETTER_AUTH_SECRET }))
+      )(workerConnection as Redis);
+    const dispatcher =
+      dependencies.dispatcher ??
+      (
+        dependencies.createDispatcher ??
+        ((queueResources) =>
+          createOutboxDispatcher({
+            repository: outboxRepository,
+            queue: queueResources.ticketEmailQueue,
+            workerId: `email-worker-${randomUUID()}`,
+          }))
+      )(queues);
+    dependencies.startWorkers?.();
+    dependencies.startDispatcher?.();
+    void superviseDispatcher(
+      dispatcher,
+      abortController.signal,
+      reportOperationalFailure,
+      restartWait,
     );
-  const workers =
-    dependencies.workers ??
-    (
-      dependencies.createWorkers ??
-      ((connection) =>
-        createEmailWorkers({ connection, otpSecret: env.BETTER_AUTH_SECRET }))
-    )(workerConnection as Redis);
-  const dispatcher =
-    dependencies.dispatcher ??
-    (
-      dependencies.createDispatcher ??
-      ((queueResources) =>
-        createOutboxDispatcher({
-          repository: outboxRepository,
-          queue: queueResources.ticketEmailQueue,
-          workerId: `email-worker-${randomUUID()}`,
-        }))
-    )(queues);
-  dependencies.startWorkers?.();
-  dependencies.startDispatcher?.();
-  void dispatcher.run(abortController.signal).catch(() => undefined);
+  } catch (error) {
+    abortController.abort();
+    const rollbackSteps: Array<() => Promise<void>> = [];
+    if (workers) {
+      const startupWorkers = workers;
+      rollbackSteps.push(() => closeWorkersWithinDeadline(startupWorkers));
+    }
+    if (queues) {
+      const startupQueues = queues;
+      rollbackSteps.push(() => startupQueues.close());
+      if (workerConnectionAttempted) {
+        rollbackSteps.push(async () => {
+          await workerConnection.quit();
+        });
+      }
+    } else {
+      if (workerConnectionAttempted) {
+        rollbackSteps.push(async () => {
+          await workerConnection.quit();
+        });
+      }
+      if (producerConnectionAttempted) {
+        rollbackSteps.push(async () => {
+          await producerConnection.quit();
+        });
+      }
+    }
+    if (databaseAttempted) rollbackSteps.push(disconnect);
+    await runCleanupSteps(rollbackSteps);
+    throw error;
+  }
+
+  if (!queues || !workers) {
+    throw new Error("Worker runtime failed to initialize resources");
+  }
+  const runtimeQueues = queues;
+  const runtimeWorkers = workers;
 
   let closePromise: Promise<void> | undefined;
   return {
     close() {
       closePromise ??= (async () => {
         abortController.abort();
-        await closeWorkersWithinDeadline(workers);
-        await queues.close();
-        await workerConnection.quit();
-        await flush();
-        await disconnect();
+        const failures = await runCleanupSteps(
+          [
+            () => closeWorkersWithinDeadline(runtimeWorkers),
+            () => runtimeQueues.close(),
+            async () => {
+              await workerConnection.quit();
+            },
+            flush,
+            disconnect,
+          ],
+          reportOperationalFailure,
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, "Worker runtime shutdown failed");
+        }
       })();
       return closePromise;
     },

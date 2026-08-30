@@ -91,3 +91,13 @@ export function reportBackgroundJobFailure(input: BackgroundJobFailure): void {
 export async function flushSentry(timeoutMs = 2_000): Promise<void> {
   if (Sentry.isInitialized()) await Sentry.flush(timeoutMs);
 }
+
+export function reportWorkerRuntimeFailure(
+  operation: "outbox-dispatcher" | "worker-shutdown",
+): void {
+  if (!Sentry.isInitialized()) return;
+
+  Sentry.captureException(new Error("Background worker operation failed"), {
+    tags: { operation },
+  });
+}

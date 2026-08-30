@@ -6,6 +6,7 @@ import {
   createSentryOptions,
   initializeSentry,
   reportBackgroundJobFailure,
+  reportWorkerRuntimeFailure,
   setupSentryErrorHandler,
   shouldReportError,
 } from "../../src/infrastructure/sentry.js";
@@ -156,5 +157,17 @@ describe("background job reporting", () => {
     });
 
     expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it("reports operational worker failures without the original error", () => {
+    sentry.captureException.mockClear();
+    sentry.isInitialized.mockReturnValue(true);
+
+    reportWorkerRuntimeFailure("outbox-dispatcher");
+
+    expect(sentry.captureException).toHaveBeenCalledWith(
+      new Error("Background worker operation failed"),
+      { tags: { operation: "outbox-dispatcher" } },
+    );
   });
 });
