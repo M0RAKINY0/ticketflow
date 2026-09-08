@@ -19,8 +19,26 @@ const environmentSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(100),
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
-  ACCESS_TOKEN_SECRET: z.string().min(32),
-  REFRESH_TOKEN_SECRET: z.string().min(32),
+  BETTER_AUTH_SECRET: z.string().min(32),
+  BETTER_AUTH_URL: z.url(),
+  GOOGLE_CLIENT_ID: z.string().trim().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().trim().min(1),
+  TICKET_QR_SECRET: z.string().min(32),
+  REDIS_URL: z
+    .url()
+    .refine(
+      (value) => ["redis:", "rediss:"].includes(new URL(value).protocol),
+      "REDIS_URL must use redis or rediss",
+    ),
+  RESEND_API_KEY: z.string().trim().min(1),
+  AUTH_EMAIL_FROM: z.string().trim().min(3),
+  SENTRY_DSN: z
+    .url()
+    .refine(
+      (value) => ["http:", "https:"].includes(new URL(value).protocol),
+      "SENTRY_DSN must use HTTP or HTTPS",
+    )
+    .optional(),
 });
 
 export type Env = Omit<

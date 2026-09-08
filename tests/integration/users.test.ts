@@ -1,11 +1,11 @@
-import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import request from "supertest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createApp } from '../../src/app.js';
-import { prisma } from '../../src/infrastructure/prisma.js';
-import { signAccessToken } from '../../src/utilities/token.js';
+import { createApp } from "../../src/app.js";
+import { prisma } from "../../src/infrastructure/prisma.js";
+import { issueTestJwt } from "../helpers/auth.js";
 
-const USER_TEST_PREFIX = 'user-list-test-';
+const USER_TEST_PREFIX = "user-list-test-";
 
 afterEach(async () => {
   await prisma.user.deleteMany({
@@ -13,33 +13,32 @@ afterEach(async () => {
   });
 });
 
-async function createUser(label: string, role: 'USER' | 'ADMIN') {
+async function createUser(label: string, role: "USER" | "ADMIN") {
   const user = await prisma.user.create({
     data: {
       email: `${USER_TEST_PREFIX}${label}@example.com`,
       name: `${label} account`,
-      phoneNumber: '+2348000000000',
-      passwordHash: 'unused-user-list-hash',
+      phoneNumber: "+2348000000000",
       role,
     },
   });
 
-  return { user, token: signAccessToken(user) };
+  return { user, token: await issueTestJwt(user) };
 }
 
-describe('admin user listing', () => {
-  it('searches and paginates public user fields for admins only', async () => {
-    const admin = await createUser('admin', 'ADMIN');
-    const member = await createUser('ada-member', 'USER');
-    await createUser('other-user', 'USER');
+describe("admin user listing", () => {
+  it("searches and paginates public user fields for admins only", async () => {
+    const admin = await createUser("admin", "ADMIN");
+    const member = await createUser("ada-member", "USER");
+    await createUser("other-user", "USER");
 
     const response = await request(createApp())
-      .get('/api/v1/users')
-      .query({ query: 'ADA', role: 'USER', page: 1, pageSize: 1 })
-      .set('Authorization', `Bearer ${admin.token}`);
+      .get("/api/v1/users")
+      .query({ query: "ADA", role: "USER", page: 1, pageSize: 1 })
+      .set("Authorization", `Bearer ${admin.token}`);
     const forbidden = await request(createApp())
-      .get('/api/v1/users')
-      .set('Authorization', `Bearer ${member.token}`);
+      .get("/api/v1/users")
+      .set("Authorization", `Bearer ${member.token}`);
 
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({
@@ -52,24 +51,24 @@ describe('admin user listing', () => {
         id: member.user.id,
         email: member.user.email,
         name: member.user.name,
-        role: 'USER',
+        role: "USER",
       }),
     ]);
-    expect(JSON.stringify(response.body)).not.toContain('passwordHash');
+    expect(JSON.stringify(response.body)).not.toContain("passwordHash");
     expect(forbidden.status).toBe(403);
   });
 
-  it('rejects invalid pagination and role filters', async () => {
-    const admin = await createUser('validation-admin', 'ADMIN');
+  it("rejects invalid pagination and role filters", async () => {
+    const admin = await createUser("validation-admin", "ADMIN");
 
     const oversized = await request(createApp())
-      .get('/api/v1/users')
+      .get("/api/v1/users")
       .query({ pageSize: 101 })
-      .set('Authorization', `Bearer ${admin.token}`);
+      .set("Authorization", `Bearer ${admin.token}`);
     const invalidRole = await request(createApp())
-      .get('/api/v1/users')
-      .query({ role: 'OWNER' })
-      .set('Authorization', `Bearer ${admin.token}`);
+      .get("/api/v1/users")
+      .query({ role: "OWNER" })
+      .set("Authorization", `Bearer ${admin.token}`);
 
     expect(oversized.status).toBe(400);
     expect(invalidRole.status).toBe(400);

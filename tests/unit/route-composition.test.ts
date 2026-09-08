@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { authRouter } from "../../src/modules/auth/auth.routes.js";
 import { ticketingRouter } from "../../src/modules/ticketing/ticketing.routes.js";
 import { usersRouter } from "../../src/modules/users/users.routes.js";
 import { apiRouter } from "../../src/routes/index.js";
@@ -23,8 +22,7 @@ function mounts(
 }
 
 describe("apiRouter", () => {
-  it("mounts auth, users, and ticketing under their API paths", () => {
-    expect(mounts(apiRouter, "/api/v1/auth", authRouter)).toBe(true);
+  it("mounts users and ticketing under their API paths", () => {
     expect(mounts(apiRouter, "/api/v1", usersRouter)).toBe(true);
     expect(mounts(apiRouter, "/api/v1", ticketingRouter)).toBe(true);
   });

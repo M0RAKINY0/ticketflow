@@ -32,6 +32,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     env:
       NODE_ENV: test
@@ -40,6 +49,9 @@ jobs:
       TEST_DATABASE_URL: postgresql://ventra:ventra@localhost:5432/ventra_test
       ACCESS_TOKEN_SECRET: ci-access-token-secret-at-least-32-characters
       REFRESH_TOKEN_SECRET: ci-refresh-token-secret-at-least-32-characters
+      REDIS_URL: redis://localhost:6379
+      RESEND_API_KEY: re_ci_placeholder
+      AUTH_EMAIL_FROM: Ventra <auth@example.com>
 
     steps:
       - name: Check out repository

@@ -1,17 +1,18 @@
 # Ventra Ticketing
 
-This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, and JWT authentication. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
+This repository contains the Ventra event-ticketing API. It uses Node.js, Express, TypeScript, PostgreSQL, Prisma, Better Auth, and Sentry. Users discover events, reserve tickets, create and manage their own events, and perform event-scoped QR check-ins. Admins manage the whole system.
 
-The frontend lives in a separate repository. This repository owns the API, database schema, migrations, and backend tests. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. There is no Redis, job worker, payment system, Docker, or Nginx layer.
+The frontend lives in a separate repository. This repository owns the API, database schema, migrations, backend tests, and the email worker. Reservation inventory and check-in correctness rely on PostgreSQL conditional updates and unique constraints. Redis stores short-lived authentication data and BullMQ jobs. There is no payment system, Nginx layer, Railway configuration, or RabbitMQ integration.
 
 ## Capabilities
 
-- Public registration, login, refresh-token rotation, logout, and access JWTs.
+- Email and password authentication, Google OAuth, database sessions, and short-lived JWTs.
 - Two account types: `USER` and `ADMIN`.
 - Authenticated users own the events they create; admins can manage every event and user.
 - Paginated public discovery of upcoming published events by search, category, date, and country.
 - Atomic capacity enforcement and per-user idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
+- Ticket delivery through Resend with the QR displayed inline and attached as a PNG, handled asynchronously after reservation.
 - Attendee reservation, ticket, and QR retrieval.
 - Event-owner/admin ticket validation with exactly-once check-in.
 - Stable `{ "data": ... }` success and `{ "error": { "code", "message" } }` error envelopes.
@@ -20,6 +21,7 @@ The frontend lives in a separate repository. This repository owns the API, datab
 
 - Node.js 24 or newer.
 - PostgreSQL.
+- Redis 7.
 
 Install dependencies:
 
@@ -36,9 +38,16 @@ HOST=127.0.0.1
 FRONTEND_ORIGINS=http://localhost:5173
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=100
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ventra
-ACCESS_TOKEN_SECRET=replace-with-at-least-32-characters
-REFRESH_TOKEN_SECRET=replace-with-at-least-32-characters
+DATABASE_URL=postgresql://ventra:ventra@localhost:5432/ventra
+BETTER_AUTH_SECRET=replace-with-at-least-32-characters
+BETTER_AUTH_URL=http://localhost:4000
+GOOGLE_CLIENT_ID=replace-with-google-client-id
+GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
+TICKET_QR_SECRET=replace-with-at-least-32-characters
+SENTRY_DSN=https://public-key@organization.ingest.sentry.io/project-id
+REDIS_URL=redis://localhost:6379
+RESEND_API_KEY=re_replace-with-resend-api-key
+AUTH_EMAIL_FROM=Ventra <auth@example.com>
 ```
 
 For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test mode rejects a test URL that is missing or equal to `DATABASE_URL`.
@@ -46,10 +55,14 @@ For integration tests, also set `TEST_DATABASE_URL` to a separate database. Test
 Generate the client, apply migrations, and start development:
 
 ```bash
+docker compose up -d redis
 npm run prisma:generate
 npm run prisma:migrate
 npm run dev
+npm run worker:dev
 ```
+
+Run `npm run dev` and `npm run worker:dev` in separate terminals. The API accepts HTTP traffic. The worker publishes pending ticket-email outbox records and sends ticket and OTP emails. Redis must use `maxmemory-policy noeviction`; the included Compose configuration already sets it. BullMQ can lose work if Redis evicts queue keys.
 
 Useful verification commands:
 
@@ -60,22 +73,47 @@ npm run build
 npm run format:check
 ```
 
+The end-to-end queue test uses temporary PostgreSQL and Redis containers on ports `55432` and `56379`. It captures email calls in memory, so it never contacts Resend.
+
+```bash
+docker compose -p ventra-e2e -f compose.e2e.yml up -d --wait
+NODE_ENV=test DATABASE_URL=postgresql://ventra:ventra@127.0.0.1:5432/ventra TEST_DATABASE_URL=postgresql://ventra:ventra@127.0.0.1:55432/ventra_e2e npx prisma migrate deploy
+npm run test:e2e
+docker compose -p ventra-e2e -f compose.e2e.yml down
+```
+
+The test creates and verifies two users, creates and publishes an event, stops Redis during a reservation, then starts Redis and waits for the outbox and worker to deliver the ticket. It also checks encrypted OTP job data, the stored QR, the ticket job payload, and replay idempotency.
+
+## API documentation
+
+Start the backend, then open `http://localhost:4000/api/docs/` for Swagger UI. The OpenAPI 3.1 JSON contract is available at `http://localhost:4000/api/openapi.json`. The document combines Better Auth's generated authentication operations with Ventra's users, events, ticketing, reservation, and check-in routes.
+
 Pull requests targeting `main` run the full test suite, type checking, and production build in GitHub Actions. CI starts an isolated PostgreSQL service and applies all Prisma migrations before running tests.
+
+## Error reporting
+
+Set `SENTRY_DSN` to enable backend error reporting. Leave it unset to run without Sentry. Test mode never initializes the Sentry SDK, even when a DSN exists.
+
+Sentry receives unexpected server errors and application errors with a status of 500 or higher. Ventra does not report expected client errors such as validation failures, denied origins, malformed JSON, missing resources, or authorization failures. The integration keeps `sendDefaultPii` disabled and performance tracing set to zero. Ventra's existing JSON error responses do not change.
+
+The development and production commands preload `src/instrument.ts` or its compiled output before starting the server. This gives the Sentry SDK a chance to initialize before application modules load. Keep the populated DSN in `.env` or the deployment secret manager; never commit it.
+
+The email worker reports final job failures to Sentry with queue name, job name, job ID, attempt counts, and, for ticket jobs, the ticket ID. It never sends recipient addresses, OTPs, QR data, email content, or raw job data to Sentry.
 
 ## HTTP composition
 
-`src/app.ts` installs secure headers, the browser-origin allowlist, request throttling, cookie parsing, size-limited JSON parsing, the root router, and safe error responses. `src/server.ts` sets explicit HTTP timeouts. `src/routes/index.ts` mounts health, auth, users, and ticketing routes. Shared HTTP security, authentication, and error handling live in `src/middleware/`.
+`src/app.ts` installs secure headers, the browser-origin allowlist, request throttling, the Better Auth handler, cookie parsing, size-limited JSON parsing, the root router, and safe error responses. The Better Auth handler runs before the JSON parser so it can read the original request body. `src/server.ts` sets explicit HTTP timeouts. `src/routes/index.ts` mounts health, users, and ticketing routes. Shared HTTP security, authentication, and error handling live in `src/middleware/`.
 
 ## MVC module boundaries
 
-Auth, users, and ticketing live under `src/modules/`. Each feature has a clear job at every layer:
+Users and ticketing live under `src/modules/`. Better Auth owns authentication endpoints through `src/infrastructure/auth.ts`. Each Ventra feature has a clear job at every layer:
 
 - Route files declare endpoint paths and spread feature middleware arrays before controllers. They call controllers and do not call services directly.
 - Controllers translate HTTP requests into feature calls. They validate input with the feature schemas, choose status codes, manage cookies where needed, and return the standard response envelopes.
 - Services enforce business rules and coordinate work. Ticketing services keep publication, reservation, and check-in transaction callbacks here because those operations depend on related conditional writes succeeding together.
 - Models own standalone Prisma operations. `ticketingModel` uses the root Prisma client, while ticketing service callbacks keep their direct transaction-client reads and writes for conditional operations.
 - Schemas define and parse each feature's request data. They stay next to the feature that uses them.
-- Feature middleware composes shared authentication and role checks into feature access chains. Shared middleware handles bearer-token parsing, authentication, role checks, and error responses.
+- Feature middleware composes shared authentication and role checks into feature access chains. Shared middleware accepts Better Auth session cookies or JWT bearer tokens and applies Ventra role checks.
 
 Prisma's database schema and migrations remain under `prisma/`. Feature model files use the generated Prisma client at runtime; they do not replace the schema or migrations.
 
@@ -83,12 +121,24 @@ Prisma's database schema and migrations remain under `prisma/`. Feature model fi
 
 Authentication endpoints are under `/api/v1/auth`:
 
-- `POST /register`
-- `POST /login`
-- `POST /refresh`
-- `POST /logout`
+- `POST /sign-up/email`
+- `POST /sign-in/email`
+- `POST /sign-in/social`
+- `GET /callback/google`
+- `GET /get-session`
+- `POST /sign-out`
+- `GET /token`
+- `GET /jwks`
 
-Public registration always creates a `USER`, regardless of extra fields in the request. Registration and login return the access token and public user in JSON; access tokens are sent as `Authorization: Bearer <token>`. The refresh credential is an opaque token issued only in the `ventra_refresh` cookie with `HttpOnly`, `SameSite=Lax`, a 30-day lifetime, an auth-scoped path, and `Secure` in production. Refresh rotates that cookie without a JSON body, and logout revokes and clears it.
+Public registration always creates a `USER`, even if the request supplies a role. Password hashes live only in Better Auth `Account` rows. Google uses `http://localhost:4000/api/v1/auth/callback/google` during development. Browser clients authenticate with Better Auth's HTTP-only session cookie. An authenticated session may request a 15-minute JWT from `/token`; API clients send it as `Authorization: Bearer <token>`. Protected Ventra routes accept either credential.
+
+`phoneNumber` is optional. Better Auth sessions last 30 days and update their activity timestamp once per day. Production cookies use `Secure`. Google and Better Auth secrets belong in `.env` or the deployment secret manager and must never be committed.
+
+Password signup queues a six-digit verification email for delivery through Resend. Queue records contain an AES-256-GCM encrypted envelope, not the recipient address or code in plaintext. The queued envelope expires after four minutes. Better Auth's code expires after five minutes and becomes invalid after three incorrect attempts. Signup does not create a session until the email is verified through `POST /api/v1/auth/email-otp/verify-email`. Clients can request another verification code through `POST /api/v1/auth/email-otp/send-verification-otp`. Passwordless email sign-in is not supported. Google sign-in is unchanged.
+
+Redis stores OTP verification records and shared Better Auth rate-limit counters under the `ventra:auth:` prefix. User sessions remain in PostgreSQL. The API refuses to start when Redis is unavailable.
+
+The API-wide traffic ceiling remains 100 requests per minute per IP. Better Auth applies tighter limits to sensitive routes: password sign-in allows 5 requests per 15 minutes, email signup allows 5 per hour, and Google sign-in initialization allows 20 per minute. Session reads and JWT issuance allow 60 per minute, while sign-out allows 20 per minute. Redis shares these counters between application instances. Verification email delivery is also limited to three requests per 15 minutes for both the source IP and a keyed hash of the normalized email address.
 
 Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration.
 
@@ -123,6 +173,12 @@ Reservation requests require an `Idempotency-Key` header and a JSON body:
 ```
 
 The first successful request returns `201`; replaying the same user, key, event, and ticket type returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`.
+
+Ventra generates and stores the QR before the reservation transaction. That work remains synchronous. The same transaction creates the reservation, its `READY` ticket, and a ticket-email outbox record. The API returns once PostgreSQL commits, so a Redis or Resend outage does not invalidate the reservation.
+
+The worker leases pending outbox rows and publishes `{ ticketId }` jobs to `ventra-ticket-email`. It retries publication after Redis failures and uses a stable `ticket-email-<ticket-id>` BullMQ job ID. The ticket processor loads the QR and attendee details from PostgreSQL, sends the email through Resend, and records `Ticket.emailSentAt`. Replays repair a missing unsent outbox record without creating another reservation.
+
+Ticket jobs make five attempts with exponential backoff beginning at five seconds. Completed jobs stay for 24 hours with a 1,000-job limit. Failed jobs stay for seven days with a 5,000-job limit. OTP jobs make three attempts one second apart, then BullMQ removes them. OTP failures and ticket final failures get sanitized Sentry reports.
 
 Check-in requests accept the payload read from the ticket's QR code:
 
@@ -177,3 +233,4 @@ PostgreSQL is the concurrency authority:
 - Ticket status changes from `READY` to `USED` through a conditional update.
 - `CheckIn.ticketId` is unique as a second exactly-once safeguard.
 - Generated PNG QR data URLs are stored durably in `Ticket.qrCodeDataUrl`.
+- Successful ticket-email delivery is recorded in `Ticket.emailSentAt` and is not exposed in API responses.

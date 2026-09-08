@@ -1,13 +1,13 @@
-import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import request from "supertest";
+import { describe, expect, it } from "vitest";
 
-import { createApp } from '../../src/app.js';
+import { createApp } from "../../src/app.js";
 
-describe('GET /health', () => {
-  it('returns liveness without requiring authentication', async () => {
-    const response = await request(createApp()).get('/health');
+describe("GET /health", () => {
+  it("returns liveness without requiring authentication", async () => {
+    const response = await request(createApp()).get("/health");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: { status: 'ok' } });
+    expect(response.body).toEqual({ data: { status: "ok" } });
   });
 });

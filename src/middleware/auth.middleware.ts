@@ -1,8 +1,9 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { fromNodeHeaders } from "better-auth/node";
 
 import type { Role } from "../generated/prisma/client.js";
+import { auth } from "../infrastructure/auth.js";
 import { AppError } from "../shared/errors.js";
-import { verifyAccessToken } from "../utilities/token.js";
 
 export type AuthenticatedPrincipal = {
   id: string;
@@ -17,57 +18,83 @@ declare global {
   }
 }
 
-export function authenticate(
+function unauthenticated(): AppError {
+  return new AppError(401, "UNAUTHENTICATED", "Authentication is required");
+}
+
+function isRole(value: unknown): value is Role {
+  return value === "USER" || value === "ADMIN";
+}
+
+async function resolvePrincipal(
+  request: Request,
+): Promise<AuthenticatedPrincipal | undefined> {
+  const authorization = request.header("authorization");
+
+  if (authorization) {
+    if (!authorization.startsWith("Bearer ")) throw unauthenticated();
+
+    try {
+      const result = await auth.api.verifyJWT({
+        body: { token: authorization.slice("Bearer ".length) },
+      });
+      const payload = result.payload;
+
+      if (
+        !payload ||
+        typeof payload.sub !== "string" ||
+        !isRole(payload.role)
+      ) {
+        throw unauthenticated();
+      }
+
+      return { id: payload.sub, role: payload.role };
+    } catch {
+      throw unauthenticated();
+    }
+  }
+
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(request.headers),
+  });
+
+  if (!session || !isRole(session.user.role)) return undefined;
+  return { id: session.user.id, role: session.user.role };
+}
+
+export async function authenticate(
   request: Request,
   _response: Response,
   next: NextFunction,
-): void {
-  const authorization = request.header("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    next(new AppError(401, "UNAUTHENTICATED", "Authentication is required"));
-    return;
-  }
-
+): Promise<void> {
   try {
-    const claims = verifyAccessToken(authorization.slice("Bearer ".length));
-    request.principal = { id: claims.sub, role: claims.role };
+    const principal = await resolvePrincipal(request);
+    if (!principal) throw unauthenticated();
+    request.principal = principal;
     next();
-  } catch (error) {
-    next(error);
+  } catch {
+    next(unauthenticated());
   }
 }
 
-export function authenticateOptional(
+export async function authenticateOptional(
   request: Request,
   _response: Response,
   next: NextFunction,
-): void {
-  const authorization = request.header("authorization");
-
-  if (!authorization) {
-    next();
-    return;
-  }
-
-  if (!authorization.startsWith("Bearer ")) {
-    next(new AppError(401, "UNAUTHENTICATED", "Authentication is required"));
-    return;
-  }
-
+): Promise<void> {
   try {
-    const claims = verifyAccessToken(authorization.slice("Bearer ".length));
-    request.principal = { id: claims.sub, role: claims.role };
+    const principal = await resolvePrincipal(request);
+    if (principal) request.principal = principal;
     next();
-  } catch (error) {
-    next(error);
+  } catch {
+    next(unauthenticated());
   }
 }
 
 export function requireRole(...roles: Role[]): RequestHandler {
   return (request, _response, next) => {
     if (!request.principal) {
-      next(new AppError(401, "UNAUTHENTICATED", "Authentication is required"));
+      next(unauthenticated());
       return;
     }
 

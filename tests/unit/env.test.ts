@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectMigrationDatabaseUrl } from "../../src/config/database-url.js";
 import { parseEnv } from "../../src/config/env.js";
-import {
-  POSTGRES_URL,
-  SECRET_A,
-  SECRET_B,
-  TEST_POSTGRES_URL,
-} from "../setup/env.js";
+import { POSTGRES_URL, SECRET_A, TEST_POSTGRES_URL } from "../setup/env.js";
 
 function validEnvironment(
   overrides: NodeJS.ProcessEnv = {},
@@ -17,8 +12,14 @@ function validEnvironment(
     PORT: "4000",
     DATABASE_URL: POSTGRES_URL,
     TEST_DATABASE_URL: TEST_POSTGRES_URL,
-    ACCESS_TOKEN_SECRET: SECRET_A,
-    REFRESH_TOKEN_SECRET: SECRET_B,
+    BETTER_AUTH_SECRET: SECRET_A,
+    BETTER_AUTH_URL: "http://localhost:4000",
+    GOOGLE_CLIENT_ID: "google-client-id",
+    GOOGLE_CLIENT_SECRET: "google-client-secret",
+    TICKET_QR_SECRET: "q".repeat(32),
+    REDIS_URL: "redis://localhost:6379",
+    RESEND_API_KEY: "re_test_key",
+    AUTH_EMAIL_FROM: "Ventra <auth@example.com>",
     ...overrides,
   };
 }
@@ -40,10 +41,57 @@ describe("parseEnv", () => {
     expect(parseEnv(validEnvironment()).DATABASE_URL).toBe(TEST_POSTGRES_URL);
   });
 
-  it("rejects secrets shorter than 32 characters", () => {
+  it("rejects a Better Auth secret shorter than 32 characters", () => {
     expect(() =>
-      parseEnv(validEnvironment({ ACCESS_TOKEN_SECRET: "a".repeat(31) })),
+      parseEnv(validEnvironment({ BETTER_AUTH_SECRET: "a".repeat(31) })),
     ).toThrow(/32/);
+  });
+
+  it("requires Google OAuth credentials", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ GOOGLE_CLIENT_ID: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ GOOGLE_CLIENT_SECRET: undefined })),
+    ).toThrow();
+  });
+
+  it("requires Redis and Resend configuration", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ REDIS_URL: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ RESEND_API_KEY: undefined })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ AUTH_EMAIL_FROM: undefined })),
+    ).toThrow();
+  });
+
+  it("requires a separate ticket QR signing secret", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ TICKET_QR_SECRET: undefined })),
+    ).toThrow();
+  });
+
+  it("accepts an optional Sentry DSN", () => {
+    expect(
+      parseEnv(
+        validEnvironment({
+          SENTRY_DSN: "https://public-key@o123456.ingest.sentry.io/123456",
+        }),
+      ).SENTRY_DSN,
+    ).toBe("https://public-key@o123456.ingest.sentry.io/123456");
+    expect(parseEnv(validEnvironment()).SENTRY_DSN).toBeUndefined();
+  });
+
+  it("rejects an invalid Sentry DSN", () => {
+    expect(() =>
+      parseEnv(validEnvironment({ SENTRY_DSN: "not-a-url" })),
+    ).toThrow();
+    expect(() =>
+      parseEnv(validEnvironment({ SENTRY_DSN: "ftp://sentry.example/1" })),
+    ).toThrow(/HTTP or HTTPS/);
   });
 
   it("applies development and port defaults", () => {

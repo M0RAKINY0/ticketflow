@@ -1,15 +1,15 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-import QRCode from 'qrcode';
+import QRCode from "qrcode";
 
-import { env } from '../config/env.js';
-import { AppError } from '../shared/errors.js';
+import { env } from "../config/env.js";
+import { AppError } from "../shared/errors.js";
 
 const PUBLIC_ID_BYTES = 32;
 const SIGNATURE_HEX_LENGTH = 64;
 
 export function createTicketPublicId(): string {
-  return randomBytes(PUBLIC_ID_BYTES).toString('base64url');
+  return randomBytes(PUBLIC_ID_BYTES).toString("base64url");
 }
 
 export function createTicketQrPayload(publicId: string): string {
@@ -18,15 +18,15 @@ export function createTicketQrPayload(publicId: string): string {
 
 export async function createTicketQrDataUrl(publicId: string): Promise<string> {
   return QRCode.toDataURL(createTicketQrPayload(publicId), {
-    errorCorrectionLevel: 'M',
+    errorCorrectionLevel: "M",
     margin: 2,
-    type: 'image/png',
+    type: "image/png",
     width: 320,
   });
 }
 
 export function verifyTicketQrPayload(payload: string): string {
-  const separator = payload.lastIndexOf('.');
+  const separator = payload.lastIndexOf(".");
 
   if (separator <= 0 || separator === payload.length - 1) {
     throw invalidQrPayload();
@@ -42,10 +42,13 @@ export function verifyTicketQrPayload(payload: string): string {
     throw invalidQrPayload();
   }
 
-  const expected = Buffer.from(sign(publicId), 'hex');
-  const supplied = Buffer.from(suppliedSignature, 'hex');
+  const expected = Buffer.from(sign(publicId), "hex");
+  const supplied = Buffer.from(suppliedSignature, "hex");
 
-  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+  if (
+    expected.length !== supplied.length ||
+    !timingSafeEqual(expected, supplied)
+  ) {
     throw invalidQrPayload();
   }
 
@@ -53,9 +56,11 @@ export function verifyTicketQrPayload(payload: string): string {
 }
 
 function sign(publicId: string): string {
-  return createHmac('sha256', env.ACCESS_TOKEN_SECRET).update(publicId).digest('hex');
+  return createHmac("sha256", env.TICKET_QR_SECRET)
+    .update(publicId)
+    .digest("hex");
 }
 
 function invalidQrPayload(): AppError {
-  return new AppError(400, 'INVALID_QR_PAYLOAD', 'QR payload is invalid');
+  return new AppError(400, "INVALID_QR_PAYLOAD", "QR payload is invalid");
 }

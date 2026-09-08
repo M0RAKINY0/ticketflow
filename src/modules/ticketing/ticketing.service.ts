@@ -3,6 +3,7 @@ import type {
   Prisma,
   Role,
 } from "../../generated/prisma/client.js";
+import { randomUUID } from "node:crypto";
 import { prisma } from "../../infrastructure/prisma.js";
 import { AppError } from "../../shared/errors.js";
 import { canManageEvent } from "./ticketing.authorization.js";
@@ -292,9 +293,14 @@ export async function createReservation(
 ) {
   const replay = await findReservationByKey(userId, idempotencyKey);
   if (replay) {
-    return resolveReservationReplay(replay, eventId, ticketTypeId);
+    const result = resolveReservationReplay(replay, eventId, ticketTypeId);
+    if (replay.ticket) {
+      await ticketingModel.ensureTicketEmailOutbox(replay.ticket.id);
+    }
+    return result;
   }
 
+  const ticketId = randomUUID();
   const publicId = createTicketPublicId();
   const qrCodeDataUrl = await createTicketQrDataUrl(publicId);
 
@@ -326,6 +332,7 @@ export async function createReservation(
           idempotencyKey,
           ticket: {
             create: {
+              id: ticketId,
               publicId,
               qrCodeDataUrl,
               status: "READY",
@@ -333,6 +340,13 @@ export async function createReservation(
           },
         },
         select: { id: true },
+      });
+
+      await transaction.outboxEvent.create({
+        data: {
+          type: "TICKET_EMAIL_REQUESTED",
+          aggregateId: ticketId,
+        },
       });
 
       return reservation.id;
@@ -348,11 +362,17 @@ export async function createReservation(
         idempotencyKey,
       );
       if (concurrentReplay) {
-        return resolveReservationReplay(
+        const result = resolveReservationReplay(
           concurrentReplay,
           eventId,
           ticketTypeId,
         );
+        if (concurrentReplay.ticket) {
+          await ticketingModel.ensureTicketEmailOutbox(
+            concurrentReplay.ticket.id,
+          );
+        }
+        return result;
       }
     }
 
@@ -583,8 +603,15 @@ function decorateReservation<
   };
 }
 
-function decorateTicket<Ticket extends { publicId: string }>(ticket: Ticket) {
-  return { ...ticket, qrPayload: createTicketQrPayload(ticket.publicId) };
+function decorateTicket<
+  Ticket extends { publicId: string; emailSentAt?: Date | null },
+>(ticket: Ticket) {
+  const publicTicket = { ...ticket };
+  delete publicTicket.emailSentAt;
+  return {
+    ...publicTicket,
+    qrPayload: createTicketQrPayload(ticket.publicId),
+  };
 }
 
 function eventLocked(): AppError {
