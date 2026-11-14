@@ -2,12 +2,14 @@ import { Router } from "express";
 
 import {
   cancelEventController,
+  claimReservationController,
   createCheckInController,
   createEventController,
   createReservationController,
   createTicketTypeController,
   deleteTicketTypeController,
   getEventController,
+  getReservationController,
   getTicketController,
   getTicketQrController,
   listCheckInsController,
@@ -23,6 +25,7 @@ import {
   authenticated,
   authenticatedUserOnly,
   optionalAuthentication,
+  reservationCheckout,
 } from "./ticketing.middleware.js";
 
 export const ticketingRouter = Router();
@@ -81,8 +84,20 @@ ticketingRouter.delete(
 
 ticketingRouter.post(
   "/events/:eventId/reservations",
-  ...authenticatedUserOnly,
+  ...reservationCheckout,
   createReservationController,
+);
+
+ticketingRouter.get(
+  "/reservations/:reservationId",
+  ...optionalAuthentication,
+  getReservationController,
+);
+
+ticketingRouter.post(
+  "/reservations/:reservationId/claim",
+  ...authenticatedUserOnly,
+  claimReservationController,
 );
 
 ticketingRouter.get(

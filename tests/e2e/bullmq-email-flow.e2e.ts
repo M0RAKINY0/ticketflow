@@ -187,9 +187,9 @@ describe("BullMQ email flow", () => {
     const reservation = await attendee
       .post(`/api/v1/events/${eventId}/reservations`)
       .set("Idempotency-Key", "bullmq-e2e-reservation")
-      .send({ ticketTypeId });
+      .send({ items: [{ ticketTypeId, quantity: 1 }] });
     expect(reservation.status).toBe(201);
-    const ticketId = reservation.body.data.reservation.ticket.id as string;
+    const ticketId = reservation.body.data.reservation.tickets[0].id as string;
 
     const committedBeforeRedis = await prisma.ticket.findUniqueOrThrow({
       where: { id: ticketId },
@@ -248,7 +248,7 @@ describe("BullMQ email flow", () => {
     const replay = await attendee
       .post(`/api/v1/events/${eventId}/reservations`)
       .set("Idempotency-Key", "bullmq-e2e-reservation")
-      .send({ ticketTypeId });
+      .send({ items: [{ ticketTypeId, quantity: 1 }] });
     expect(replay.status).toBe(200);
 
     const [reservationCount, ticketCount, outboxCount, storedType] =

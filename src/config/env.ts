@@ -17,6 +17,12 @@ const environmentSchema = z.object({
     .max(86_400_000)
     .default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(100),
+  RESERVATION_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100_000)
+    .default(20),
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
   BETTER_AUTH_SECRET: z.string().min(32),

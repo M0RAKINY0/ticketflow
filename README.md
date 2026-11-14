@@ -10,10 +10,11 @@ The frontend lives in a separate repository. This repository owns the API, datab
 - Two account types: `USER` and `ADMIN`.
 - Authenticated users own the events they create; admins can manage every event and user.
 - Paginated public discovery of upcoming published events by search, category, date, and country.
-- Atomic capacity enforcement and per-user idempotent reservations.
+- Guest checkout: anyone can reserve up to 10 tickets with a name and email, with or without an account.
+- Atomic capacity enforcement and per-buyer idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
 - Ticket delivery through Resend with the QR displayed inline and attached as a PNG, handled asynchronously after reservation.
-- Attendee reservation, ticket, and QR retrieval.
+- Reservation, ticket, and QR retrieval for signed-in buyers, and by emailed link for guests.
 - Event-owner/admin ticket validation with exactly-once check-in.
 - Stable `{ "data": ... }` success and `{ "error": { "code", "message" } }` error envelopes.
 
@@ -38,6 +39,7 @@ HOST=127.0.0.1
 FRONTEND_ORIGINS=http://localhost:5173
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=100
+RESERVATION_RATE_LIMIT_MAX=20
 DATABASE_URL=postgresql://ventra:ventra@localhost:5432/ventra
 BETTER_AUTH_SECRET=replace-with-at-least-32-characters
 BETTER_AUTH_URL=http://localhost:4000
@@ -158,7 +160,9 @@ All routes below use the `/api/v1` prefix.
 | `POST`   | `/events/:eventId/ticket-types`               | Owner or admin        | Adds a ticket type to a draft.                                                                                                            |
 | `PATCH`  | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Updates a ticket type on a draft.                                                                                                         |
 | `DELETE` | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Deletes a ticket type from a draft.                                                                                                       |
-| `POST`   | `/events/:eventId/reservations`               | User                  | Reserves one ticket for a published event.                                                                                                |
+| `POST`   | `/events/:eventId/reservations`               | Guest or user         | Reserves up to 10 tickets for a published event.                                                                                          |
+| `GET`    | `/reservations/:reservationId`                | Access token or owner | Returns one reservation with its tickets and QR codes.                                                                                    |
+| `POST`   | `/reservations/:reservationId/claim`          | User                  | Saves a guest reservation to the caller's account.                                                                                        |
 | `GET`    | `/me/reservations`                            | Authenticated         | Lists the caller's reservations.                                                                                                          |
 | `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                                                                               |
 | `GET`    | `/me/tickets/:ticketId`                       | Ticket owner          | Returns one ticket.                                                                                                                       |
@@ -169,14 +173,27 @@ All routes below use the `/api/v1` prefix.
 Reservation requests require an `Idempotency-Key` header and a JSON body:
 
 ```json
-{ "ticketTypeId": "uuid" }
+{
+  "items": [{ "ticketTypeId": "uuid", "quantity": 2 }],
+  "buyer": { "email": "ada@example.com", "name": "Ada Lovelace" }
+}
 ```
 
-The first successful request returns `201`; replaying the same user, key, event, and ticket type returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`.
+`items` lists each ticket type once. A reservation holds at most 10 tickets in total. Guests must send `buyer`. Signed-in users reserve under their account name and email, and the API ignores `buyer` for them. Admin accounts cannot reserve.
 
-Ventra generates and stores the QR before the reservation transaction. That work remains synchronous. The same transaction creates the reservation, its `READY` ticket, and a ticket-email outbox record. The API returns once PostgreSQL commits, so a Redis or Resend outage does not invalidate the reservation.
+The first successful request returns `201`; replaying the same buyer email, key, event, and items returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`. Asking for more tickets than a ticket type has left returns `409 NOT_ENOUGH_TICKETS`, and nothing is reserved.
 
-The worker leases pending outbox rows and publishes `{ ticketId }` jobs to `ventra-ticket-email`. It retries publication after Redis failures and uses a stable `ticket-email-<ticket-id>` BullMQ job ID. The ticket processor loads the QR and attendee details from PostgreSQL, sends the email through Resend, and records `Ticket.emailSentAt`. Replays repair a missing unsent outbox record without creating another reservation.
+Every reservation response carries an `accessToken`. A guest opens their reservation with `GET /reservations/:reservationId?token=<accessToken>`. The token is an HMAC of the reservation ID under `TICKET_QR_SECRET`, so rotating that secret invalidates emailed links and printed QR codes together. Each ticket email links to `<first FRONTEND_ORIGINS entry>/reservations/:reservationId?token=...`, so list the public site origin first.
+
+A signed-in user sees reservations made under their account. Once their email is verified, they also see guest reservations made with that email.
+
+A guest who signs in later can save a reservation to their account with `POST /reservations/:reservationId/claim` and a `{ "token": "<accessToken>" }` body. The tickets then show under `/me/tickets` whatever email the account uses, and the emailed link keeps working. A reservation that already has an owner returns `409 RESERVATION_ALREADY_CLAIMED` to anyone else.
+
+Checkout has its own per-IP limit, `RESERVATION_RATE_LIMIT_MAX` requests per `RATE_LIMIT_WINDOW_MS`, because guests can reach it without an account.
+
+Ventra generates and stores the QR before the reservation transaction. That work remains synchronous. The same transaction creates the reservation, its `READY` tickets, and one ticket-email outbox record per ticket. The API returns once PostgreSQL commits, so a Redis or Resend outage does not invalidate the reservation.
+
+The worker leases pending outbox rows and publishes `{ ticketId }` jobs to `ventra-ticket-email`. It retries publication after Redis failures and uses a stable `ticket-email-<ticket-id>` BullMQ job ID. The ticket processor loads the QR and buyer details from PostgreSQL, sends the email through Resend, and records `Ticket.emailSentAt`. Replays repair a missing unsent outbox record without creating another reservation.
 
 Ticket jobs make five attempts with exponential backoff beginning at five seconds. Completed jobs stay for 24 hours with a 1,000-job limit. Failed jobs stay for seven days with a 5,000-job limit. OTP jobs make three attempts one second apart, then BullMQ removes them. OTP failures and ticket final failures get sanitized Sentry reports.
 
@@ -227,9 +244,10 @@ Supported categories are `MUSIC`, `BUSINESS`, `TECHNOLOGY`, `ARTS_CULTURE`, `FOO
 
 PostgreSQL is the concurrency authority:
 
-- `TicketType.reservedCount` is incremented only when it remains below `capacity`.
-- `(userId, idempotencyKey)` is unique for reservations.
-- Each reservation owns at most one ticket, and ticket public IDs are unique.
+- `TicketType.reservedCount` grows by the requested quantity only when the result stays within `capacity`. A reservation that spans ticket types takes all of them or none.
+- `(buyerEmail, idempotencyKey)` is unique for reservations.
+- `Reservation.userId` is null for guest reservations. `buyerEmail` and `buyerName` are always set.
+- Ticket public IDs are unique.
 - Ticket status changes from `READY` to `USED` through a conditional update.
 - `CheckIn.ticketId` is unique as a second exactly-once safeguard.
 - Generated PNG QR data URLs are stored durably in `Ticket.qrCodeDataUrl`.

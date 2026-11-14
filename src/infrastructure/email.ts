@@ -37,6 +37,7 @@ export type TicketEmailInput = {
   eventTimezone: string;
   ticketTypeName: string;
   qrCodeDataUrl: string;
+  reservationUrl: string;
 };
 
 export type TicketEmailSender = {
@@ -78,6 +79,7 @@ export function createTicketEmailSender(
       const eventName = escapeHtml(input.eventName);
       const ticketTypeName = escapeHtml(input.ticketTypeName);
       const publicId = escapeHtml(input.publicId);
+      const reservationUrl = escapeHtml(input.reservationUrl);
       const result = await transport.send(
         {
           from: transport.from,
@@ -89,8 +91,9 @@ export function createTicketEmailSender(
             `Event date: ${eventDate}`,
             `Ticket reference: ${input.publicId}`,
             "Your QR code is attached to this email.",
+            `See every ticket in this reservation: ${input.reservationUrl}`,
           ].join("\n\n"),
-          html: `<p>Hello ${attendeeName},</p><p>Your ${ticketTypeName} ticket for ${eventName} is ready.</p><p>Event date: ${eventDate}<br>Ticket reference: ${publicId}</p><p><img src="cid:ticket-qr" alt="Ticket QR code"></p>`,
+          html: `<p>Hello ${attendeeName},</p><p>Your ${ticketTypeName} ticket for ${eventName} is ready.</p><p>Event date: ${eventDate}<br>Ticket reference: ${publicId}</p><p><img src="cid:ticket-qr" alt="Ticket QR code"></p><p><a href="${reservationUrl}">See every ticket in this reservation</a></p>`,
           attachments: [
             {
               content: qrContent,

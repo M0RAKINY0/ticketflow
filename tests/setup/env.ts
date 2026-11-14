@@ -5,6 +5,7 @@ export const SECRET_A = "a".repeat(32);
 
 process.env.NODE_ENV = "test";
 process.env.PORT = "4001";
+process.env.RESERVATION_RATE_LIMIT_MAX = "1000";
 process.env.DATABASE_URL = POSTGRES_URL;
 process.env.TEST_DATABASE_URL = TEST_POSTGRES_URL;
 process.env.BETTER_AUTH_SECRET ??= SECRET_A;

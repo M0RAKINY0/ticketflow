@@ -10,12 +10,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "../../src/middleware/error.middleware.js";
 import {
   cancelEventController,
+  claimReservationController,
   createCheckInController,
   createEventController,
   createReservationController,
   createTicketTypeController,
   deleteTicketTypeController,
   getEventController,
+  getReservationController,
   getTicketController,
   getTicketQrController,
   listCheckInsController,
@@ -31,6 +33,7 @@ import {
   authenticated as ticketingAuthenticated,
   authenticatedUserOnly,
   optionalAuthentication,
+  reservationCheckout,
 } from "../../src/modules/ticketing/ticketing.middleware.js";
 import { ticketingRouter } from "../../src/modules/ticketing/ticketing.routes.js";
 import {
@@ -65,6 +68,8 @@ const ticketingService = vi.hoisted(() => ({
   updateTicketType: vi.fn(),
   deleteTicketType: vi.fn(),
   createReservation: vi.fn(),
+  getReservation: vi.fn(),
+  claimReservation: vi.fn(),
   listReservations: vi.fn(),
   listTickets: vi.fn(),
   getTicketQr: vi.fn(),
@@ -274,7 +279,17 @@ describe("ticketing controllers and routes", () => {
     [
       "post",
       "/events/:eventId/reservations",
-      [...authenticatedUserOnly, createReservationController],
+      [...reservationCheckout, createReservationController],
+    ],
+    [
+      "get",
+      "/reservations/:reservationId",
+      [...optionalAuthentication, getReservationController],
+    ],
+    [
+      "post",
+      "/reservations/:reservationId/claim",
+      [...authenticatedUserOnly, claimReservationController],
     ],
     [
       "get",
@@ -312,13 +327,13 @@ describe("ticketing controllers and routes", () => {
     },
   );
 
-  it("keeps user-role enforcement before reservation handling", async () => {
+  it("keeps admins out of reservation handling", async () => {
     const handlers = routeHandlers(
       ticketingRouter,
       "/events/:eventId/reservations",
       "post",
     );
-    expect(handlers).toHaveLength(3);
+    expect(handlers).toHaveLength(4);
 
     const app = express();
     app.use(express.json());
@@ -332,7 +347,7 @@ describe("ticketing controllers and routes", () => {
         `Bearer ${await issueTestJwt({ id: userId, role: "ADMIN" })}`,
       )
       .set("idempotency-key", "reservation-key")
-      .send({ ticketTypeId: ticketId })
+      .send({ items: [{ ticketTypeId: ticketId, quantity: 1 }] })
       .expect(403, {
         error: {
           code: "FORBIDDEN",
@@ -357,16 +372,16 @@ describe("ticketing controllers and routes", () => {
         .post(`/events/${eventId}/reservations`)
         .set("authorization", `Bearer ${userToken}`)
         .set("idempotency-key", "reservation-key")
-        .send({ ticketTypeId: ticketId });
+        .send({ items: [{ ticketTypeId: ticketId, quantity: 2 }] });
 
     await makeRequest().expect(201, { data: { reservation } });
     await makeRequest().expect(200, { data: { reservation } });
     expect(ticketingService.createReservation).toHaveBeenNthCalledWith(
       1,
       eventId,
-      ticketId,
-      userId,
+      { items: [{ ticketTypeId: ticketId, quantity: 2 }] },
       "reservation-key",
+      { id: userId, role: "USER" },
     );
   });
 

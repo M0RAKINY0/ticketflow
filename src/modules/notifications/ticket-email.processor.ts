@@ -9,10 +9,13 @@ export type { TicketEmailRepository } from "./ticket-email.repository.js";
 export function createTicketEmailProcessor({
   repository,
   sender,
+  reservationUrl,
   clock = () => new Date(),
 }: {
   repository: TicketEmailRepository;
   sender: TicketEmailSender;
+  /** Builds the link a buyer follows to see every ticket in the reservation. */
+  reservationUrl: (reservationId: string) => string;
   clock?: () => Date;
 }): (job: Job) => Promise<void> {
   return async (job) => {
@@ -39,13 +42,14 @@ export function createTicketEmailProcessor({
     await sender.sendTicket({
       ticketId: delivery.id,
       publicId: delivery.publicId,
-      recipientEmail: delivery.reservation.user.email,
-      attendeeName: delivery.reservation.user.name,
+      recipientEmail: delivery.reservation.buyerEmail,
+      attendeeName: delivery.reservation.buyerName,
       eventName: delivery.reservation.event.title,
       eventStartsAt: delivery.reservation.event.startsAt,
       eventTimezone: delivery.reservation.event.timezone,
-      ticketTypeName: delivery.reservation.ticketType.name,
+      ticketTypeName: delivery.ticketType.name,
       qrCodeDataUrl: delivery.qrCodeDataUrl,
+      reservationUrl: reservationUrl(delivery.reservation.id),
     });
     await repository.markSent(delivery.id, clock());
   };

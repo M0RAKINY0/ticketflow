@@ -9,6 +9,7 @@ import {
 import { createOtpProcessor } from "../../modules/notifications/otp.processor.js";
 import { createTicketEmailProcessor } from "../../modules/notifications/ticket-email.processor.js";
 import { ticketEmailRepository } from "../../modules/notifications/ticket-email.repository.js";
+import { createReservationUrl } from "../../utilities/reservation-access.js";
 import {
   AUTH_EMAIL_QUEUE,
   TICKET_EMAIL_QUEUE,
@@ -66,6 +67,7 @@ export function createEmailWorkers({
     createTicketEmailProcessor({
       repository: ticketEmailRepository,
       sender: ticketEmailSender,
+      reservationUrl: createReservationUrl,
     }),
     { connection, prefix: QUEUE_PREFIX },
   );

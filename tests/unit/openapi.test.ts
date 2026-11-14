@@ -19,6 +19,8 @@ const applicationOperations = [
   "PATCH /api/v1/events/{eventId}/ticket-types/{ticketTypeId}",
   "DELETE /api/v1/events/{eventId}/ticket-types/{ticketTypeId}",
   "POST /api/v1/events/{eventId}/reservations",
+  "GET /api/v1/reservations/{reservationId}",
+  "POST /api/v1/reservations/{reservationId}/claim",
   "GET /api/v1/me/reservations",
   "GET /api/v1/me/tickets",
   "GET /api/v1/me/tickets/{ticketId}",

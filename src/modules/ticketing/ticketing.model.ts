@@ -6,19 +6,17 @@ export const ticketingEventInclude = {
   ticketTypes: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.EventInclude;
 
-const reservationInclude = {
+export const reservationInclude = {
   event: true,
-  ticketType: true,
-  ticket: true,
+  tickets: {
+    include: { ticketType: true },
+    orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
+  },
 } satisfies Prisma.ReservationInclude;
 
 const ticketInclude = {
-  reservation: {
-    include: {
-      event: true,
-      ticketType: true,
-    },
-  },
+  reservation: { include: { event: true } },
+  ticketType: true,
   checkIn: true,
 } satisfies Prisma.TicketInclude;
 
@@ -27,11 +25,9 @@ const checkInInclude = {
   ticket: {
     include: {
       reservation: {
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          ticketType: true,
-        },
+        select: { id: true, buyerName: true, buyerEmail: true },
       },
+      ticketType: true,
     },
   },
 } satisfies Prisma.CheckInInclude;
@@ -113,17 +109,35 @@ export const ticketingModel = {
     });
   },
 
-  findReservationByKey(userId: string, idempotencyKey: string) {
+  findBuyer(userId: string) {
+    return prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true, emailVerified: true },
+    });
+  },
+
+  findReservationByKey(buyerEmail: string, idempotencyKey: string) {
     return prisma.reservation.findUnique({
-      where: { userId_idempotencyKey: { userId, idempotencyKey } },
+      where: { buyerEmail_idempotencyKey: { buyerEmail, idempotencyKey } },
       include: reservationInclude,
     });
   },
 
-  findReservationById(reservationId: string) {
-    return prisma.reservation.findUniqueOrThrow({
-      where: { id: reservationId },
+  findReservation(
+    reservationId: string,
+    owner: Prisma.ReservationWhereInput = {},
+  ) {
+    return prisma.reservation.findFirst({
+      where: { AND: [{ id: reservationId }, owner] },
       include: reservationInclude,
+    });
+  },
+
+  /** Attaches a guest reservation to an account. Does nothing once it has an owner. */
+  claimReservation(reservationId: string, userId: string) {
+    return prisma.reservation.updateMany({
+      where: { id: reservationId, userId: null },
+      data: { userId },
     });
   },
 
@@ -146,32 +160,32 @@ export const ticketingModel = {
     `;
   },
 
-  listReservations(userId: string) {
+  listReservations(owner: Prisma.ReservationWhereInput) {
     return prisma.reservation.findMany({
-      where: { userId },
+      where: owner,
       include: reservationInclude,
       orderBy: { createdAt: "desc" },
     });
   },
 
-  listTickets(userId: string) {
+  listTickets(owner: Prisma.ReservationWhereInput) {
     return prisma.ticket.findMany({
-      where: { reservation: { userId } },
+      where: { reservation: owner },
       include: ticketInclude,
       orderBy: { createdAt: "desc" },
     });
   },
 
-  findTicket(ticketId: string, userId: string) {
+  findTicket(ticketId: string, owner: Prisma.ReservationWhereInput) {
     return prisma.ticket.findFirst({
-      where: { id: ticketId, reservation: { userId } },
+      where: { id: ticketId, reservation: owner },
       include: ticketInclude,
     });
   },
 
-  findTicketQr(ticketId: string, userId: string) {
+  findTicketQr(ticketId: string, owner: Prisma.ReservationWhereInput) {
     return prisma.ticket.findFirst({
-      where: { id: ticketId, reservation: { userId } },
+      where: { id: ticketId, reservation: owner },
       select: { publicId: true, qrCodeDataUrl: true },
     });
   },

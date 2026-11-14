@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { AppError } from "../../shared/errors.js";
 import { success } from "../../shared/response.js";
 import {
+  claimReservationSchema,
   createCheckInSchema,
   createEventSchema,
   createReservationSchema,
@@ -11,6 +12,8 @@ import {
   discoveryQuerySchema,
   eventIdParamsSchema,
   idempotencyKeySchema,
+  reservationAccessQuerySchema,
+  reservationParamsSchema,
   ticketParamsSchema,
   ticketTypeParamsSchema,
   updateEventSchema,
@@ -18,12 +21,14 @@ import {
 } from "./ticketing.schema.js";
 import {
   cancelEvent,
+  claimReservation,
   createCheckIn,
   createEvent,
   createReservation,
   createTicketType,
   deleteTicketType,
   getEvent,
+  getReservation,
   getTicket,
   getTicketQr,
   listCheckIns,
@@ -212,19 +217,57 @@ export async function createReservationController(
 ): Promise<void> {
   try {
     const { eventId } = eventIdParamsSchema.parse(request.params);
-    const { ticketTypeId } = createReservationSchema.parse(request.body);
+    const input = createReservationSchema.parse(request.body);
     const idempotencyKey = idempotencyKeySchema.parse(
       request.header("idempotency-key"),
     );
     const result = await createReservation(
       eventId,
-      ticketTypeId,
-      request.principal!.id,
+      input,
       idempotencyKey,
+      request.principal,
     );
     response
       .status(result.created ? 201 : 200)
       .json(success({ reservation: result.reservation }));
+  } catch (error) {
+    next(mapValidationError(error));
+  }
+}
+
+export async function getReservationController(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { reservationId } = reservationParamsSchema.parse(request.params);
+    const { token } = reservationAccessQuerySchema.parse(request.query);
+    const reservation = await getReservation(
+      reservationId,
+      token,
+      request.principal,
+    );
+    response.status(200).json(success({ reservation }));
+  } catch (error) {
+    next(mapValidationError(error));
+  }
+}
+
+export async function claimReservationController(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { reservationId } = reservationParamsSchema.parse(request.params);
+    const { token } = claimReservationSchema.parse(request.body);
+    const reservation = await claimReservation(
+      reservationId,
+      token,
+      request.principal!.id,
+    );
+    response.status(200).json(success({ reservation }));
   } catch (error) {
     next(mapValidationError(error));
   }

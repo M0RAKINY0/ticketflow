@@ -27,7 +27,9 @@ const operations = [
     "Ticket types",
     true,
   ],
-  ["post", "/api/v1/events/{eventId}/reservations", "Reservations", true],
+  ["post", "/api/v1/events/{eventId}/reservations", "Reservations", false],
+  ["get", "/api/v1/reservations/{reservationId}", "Reservations", false],
+  ["post", "/api/v1/reservations/{reservationId}/claim", "Reservations", true],
   ["get", "/api/v1/me/reservations", "Reservations", true],
   ["get", "/api/v1/me/tickets", "Tickets", true],
   ["get", "/api/v1/me/tickets/{ticketId}", "Tickets", true],
@@ -49,20 +51,32 @@ for (const [method, path, tag, secured] of operations) {
   ventraPaths[path] ??= {};
   const requestSchema = path.endsWith("/role")
     ? "RoleUpdate"
-    : path.endsWith("/reservations")
-      ? "ReservationInput"
-      : path.endsWith("/check-ins")
-        ? "CheckInInput"
-        : path.includes("ticket-types")
-          ? "TicketTypeInput"
-          : path.includes("/events")
-            ? "EventInput"
-            : undefined;
+    : path.endsWith("/claim")
+      ? "ReservationClaimInput"
+      : path.endsWith("/reservations")
+        ? "ReservationInput"
+        : path.endsWith("/check-ins")
+          ? "CheckInInput"
+          : path.includes("ticket-types")
+            ? "TicketTypeInput"
+            : path.includes("/events")
+              ? "EventInput"
+              : undefined;
   if (path.endsWith("/reservations") && method === "post") {
     parameters.push({
       name: "Idempotency-Key",
       in: "header",
       required: true,
+      schema: { type: "string" },
+    });
+  }
+  if (path.endsWith("/reservations/{reservationId}")) {
+    parameters.push({
+      name: "token",
+      in: "query",
+      required: false,
+      description:
+        "Reservation access token from the checkout response or the ticket email. Signed-in owners can omit it.",
       schema: { type: "string" },
     });
   }
@@ -72,7 +86,9 @@ for (const [method, path, tag, secured] of operations) {
     description:
       tag === "Users" && path.includes("/users")
         ? "Requires the ADMIN role."
-        : undefined,
+        : path.endsWith("/reservations") && method === "post"
+          ? "Open to guests and signed-in users. Guests must send a buyer name and email."
+          : undefined,
     parameters,
     security: secured ? [{ sessionCookie: [] }, { bearerAuth: [] }] : [],
     requestBody:
@@ -161,8 +177,42 @@ export async function createOpenAPIDocument(
         },
         ReservationInput: {
           type: "object",
-          required: ["ticketTypeId"],
-          properties: { ticketTypeId: { type: "string", format: "uuid" } },
+          required: ["items"],
+          properties: {
+            items: {
+              type: "array",
+              minItems: 1,
+              description: "At most 10 tickets in total across all items.",
+              items: {
+                type: "object",
+                required: ["ticketTypeId", "quantity"],
+                properties: {
+                  ticketTypeId: { type: "string", format: "uuid" },
+                  quantity: { type: "integer", minimum: 1, maximum: 10 },
+                },
+              },
+            },
+            buyer: {
+              type: "object",
+              description:
+                "Required for guests. Ignored for signed-in users, who reserve under their account.",
+              required: ["email", "name"],
+              properties: {
+                email: { type: "string", format: "email" },
+                name: { type: "string" },
+              },
+            },
+          },
+        },
+        ReservationClaimInput: {
+          type: "object",
+          required: ["token"],
+          properties: {
+            token: {
+              type: "string",
+              description: "The reservation access token.",
+            },
+          },
         },
         CheckInInput: {
           type: "object",
