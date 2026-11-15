@@ -8,6 +8,7 @@ import {
 } from "../../src/modules/notifications/ticket-email.processor.js";
 
 const ticketId = "4c8fd57d-a993-4bd7-9943-4a6e22f913aa";
+const reservationId = "9b0a3c4e-6c0f-4f0b-8d3b-0f6f2a1f5c11";
 const sentAt = new Date("2030-06-15T18:30:00.000Z");
 
 function delivery(
@@ -20,14 +21,16 @@ function delivery(
     publicId: "ticket-public-reference",
     qrCodeDataUrl: "data:image/png;base64,cG5nLWJ5dGVz",
     emailSentAt: null,
+    ticketType: { name: "General admission" },
     reservation: {
-      user: { email: "attendee@example.com", name: "Ada Lovelace" },
+      id: reservationId,
+      buyerEmail: "attendee@example.com",
+      buyerName: "Ada Lovelace",
       event: {
         title: "Ventra Live",
         startsAt: sentAt,
         timezone: "Africa/Lagos",
       },
-      ticketType: { name: "General admission" },
     },
     ...overrides,
   };
@@ -45,6 +48,7 @@ function setup(ticket = delivery()) {
       from: "Ventra <tickets@example.com>",
       send,
     }),
+    reservationUrl: (id) => `https://ventra.example/reservations/${id}`,
     clock: () => sentAt,
   });
 
@@ -64,6 +68,9 @@ describe("ticket email processor", () => {
       expect.objectContaining({
         to: "attendee@example.com",
         subject: "Your ticket for Ventra Live",
+        text: expect.stringContaining(
+          `https://ventra.example/reservations/${reservationId}`,
+        ),
         attachments: [
           expect.objectContaining({ contentId: "ticket-qr" }),
           expect.objectContaining({

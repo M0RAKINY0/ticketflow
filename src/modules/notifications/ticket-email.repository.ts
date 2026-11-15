@@ -5,10 +5,12 @@ export type TicketEmailDelivery = {
   publicId: string;
   qrCodeDataUrl: string | null;
   emailSentAt: Date | null;
+  ticketType: { name: string };
   reservation: {
-    user: { email: string; name: string };
+    id: string;
+    buyerEmail: string;
+    buyerName: string;
     event: { title: string; startsAt: Date; timezone: string };
-    ticketType: { name: string };
   };
 };
 
@@ -26,11 +28,13 @@ export const ticketEmailRepository: TicketEmailRepository = {
         publicId: true,
         qrCodeDataUrl: true,
         emailSentAt: true,
+        ticketType: { select: { name: true } },
         reservation: {
           select: {
-            user: { select: { email: true, name: true } },
+            id: true,
+            buyerEmail: true,
+            buyerName: true,
             event: { select: { title: true, startsAt: true, timezone: true } },
-            ticketType: { select: { name: true } },
           },
         },
       },

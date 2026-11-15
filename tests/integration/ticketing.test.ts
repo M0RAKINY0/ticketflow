@@ -94,7 +94,7 @@ async function reserve(
     .post(`/api/v1/events/${eventId}/reservations`)
     .set(authorization(token))
     .set("Idempotency-Key", key)
-    .send({ ticketTypeId });
+    .send({ items: [{ ticketTypeId, quantity: 1 }] });
 }
 
 function wait(milliseconds: number) {
@@ -406,7 +406,7 @@ describe("reservations and attendee tickets", () => {
       "reserve-once",
     );
     const reservationId = first.body.data.reservation.id as string;
-    const ticketId = first.body.data.reservation.ticket.id as string;
+    const ticketId = first.body.data.reservation.tickets[0].id as string;
     const storedTicket = await prisma.ticket.findUniqueOrThrow({
       where: { id: ticketId },
     });
@@ -432,15 +432,17 @@ describe("reservations and attendee tickets", () => {
     expect(first.status).toBe(201);
     expect(replay.status).toBe(200);
     expect(replay.body.data.reservation.id).toBe(reservationId);
-    expect(first.body.data.reservation.ticket.status).toBe("READY");
-    expect(first.body.data.reservation.ticket.emailSentAt).toBeUndefined();
-    expect(first.body.data.reservation.ticket.qrPayload).toMatch(
+    expect(first.body.data.reservation.tickets[0].status).toBe("READY");
+    expect(first.body.data.reservation.tickets[0].emailSentAt).toBeUndefined();
+    expect(first.body.data.reservation.tickets[0].qrPayload).toMatch(
       /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/,
     );
-    expect(first.body.data.reservation.ticket.qrPayload).not.toContain(
+    expect(first.body.data.reservation.tickets[0].qrPayload).not.toContain(
       attendee.user.id,
     );
-    expect(first.body.data.reservation.ticket.qrPayload).not.toContain(eventId);
+    expect(first.body.data.reservation.tickets[0].qrPayload).not.toContain(
+      eventId,
+    );
     expect(storedTicket.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
     expect(storedTicket.emailSentAt).toBeNull();
     expect(ticketEmailSender.sendTicket).not.toHaveBeenCalled();
@@ -490,9 +492,9 @@ describe("reservations and attendee tickets", () => {
     );
     const reservations = await prisma.reservation.findMany({
       where: { userId: attendee.user.id },
-      include: { ticket: true },
+      include: { tickets: true },
     });
-    const ticketId = reservations[0]?.ticket?.id;
+    const ticketId = reservations[0]?.tickets[0]?.id;
     const [ticketType, outboxEvents] = await Promise.all([
       prisma.ticketType.findUniqueOrThrow({ where: { id: ticketTypeId } }),
       ticketId
@@ -503,7 +505,7 @@ describe("reservations and attendee tickets", () => {
     expect(first.status).toBe(201);
     expect(replay.status).toBe(200);
     expect(reservations).toHaveLength(1);
-    expect(reservations[0]?.ticket).not.toBeNull();
+    expect(reservations[0]?.tickets).toHaveLength(1);
     expect(ticketType.reservedCount).toBe(1);
     expect(outboxEvents).toHaveLength(1);
   });
@@ -522,9 +524,9 @@ describe("reservations and attendee tickets", () => {
     ]);
     const reservations = await prisma.reservation.findMany({
       where: { userId: attendee.user.id },
-      include: { ticket: true },
+      include: { tickets: true },
     });
-    const ticketId = reservations[0]?.ticket?.id;
+    const ticketId = reservations[0]?.tickets[0]?.id;
     const outboxEvents = ticketId
       ? await prisma.outboxEvent.findMany({ where: { aggregateId: ticketId } })
       : [];
@@ -537,7 +539,7 @@ describe("reservations and attendee tickets", () => {
     ]);
     expect(ticketEmailSender.sendTicket).not.toHaveBeenCalled();
     expect(reservations).toHaveLength(1);
-    expect(reservations[0]?.ticket).not.toBeNull();
+    expect(reservations[0]?.tickets).toHaveLength(1);
     expect(ticketType.reservedCount).toBe(1);
     expect(outboxEvents).toHaveLength(1);
   });
@@ -556,7 +558,7 @@ describe("reservations and attendee tickets", () => {
       ticketTypeId,
       "repair-outbox",
     );
-    const ticketId = first.body.data.reservation.ticket.id as string;
+    const ticketId = first.body.data.reservation.tickets[0].id as string;
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
     const replay = await reserve(
       attendee.token,
@@ -594,7 +596,7 @@ describe("reservations and attendee tickets", () => {
       ticketTypeId,
       "sent-outbox",
     );
-    const ticketId = first.body.data.reservation.ticket.id as string;
+    const ticketId = first.body.data.reservation.tickets[0].id as string;
     await prisma.ticket.update({
       where: { id: ticketId },
       data: { emailSentAt: new Date() },
@@ -630,7 +632,7 @@ describe("reservations and attendee tickets", () => {
       ticketTypeId,
       "race-sent-outbox",
     );
-    const ticketId = first.body.data.reservation.ticket.id as string;
+    const ticketId = first.body.data.reservation.tickets[0].id as string;
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
 
     let repairSettled = false;
@@ -721,6 +723,113 @@ describe("reservations and attendee tickets", () => {
     expect(conflict.status).toBe(409);
     expect(conflict.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
   });
+
+  it("lets a guest reserve several tickets, reach them by access token, and save them to an account", async () => {
+    const owner = await createUser("guest-owner", "USER");
+    const createdEvent = await createEvent(owner.token, "Guest Show");
+    const eventId = createdEvent.body.data.event.id as string;
+    const createdType = await createTicketType(owner.token, eventId, {
+      capacity: 3,
+    });
+    const ticketTypeId = createdType.body.data.ticketType.id as string;
+    await publishEvent(owner.token, eventId);
+    const guestEmail = `${TEST_EMAIL_PREFIX}guest-buyer@example.com`;
+    const checkout = (quantity: number, key: string, buyer?: object) =>
+      request(createApp())
+        .post(`/api/v1/events/${eventId}/reservations`)
+        .set("Idempotency-Key", key)
+        .send({ items: [{ ticketTypeId, quantity }], buyer });
+
+    const anonymous = await checkout(1, "guest-no-buyer");
+    const created = await checkout(2, "guest-key", {
+      email: ` ${guestEmail.toUpperCase()} `,
+      name: "Guest Buyer",
+    });
+    const tooMany = await checkout(2, "guest-too-many", {
+      email: guestEmail,
+      name: "Guest Buyer",
+    });
+    const reservation = created.body.data.reservation;
+    const storedType = await prisma.ticketType.findUniqueOrThrow({
+      where: { id: ticketTypeId },
+    });
+    const outboxCount = await prisma.outboxEvent.count({
+      where: {
+        aggregateId: {
+          in: reservation.tickets.map((ticket: { id: string }) => ticket.id),
+        },
+      },
+    });
+    const byToken = await request(createApp()).get(
+      `/api/v1/reservations/${reservation.id}?token=${reservation.accessToken}`,
+    );
+    const withoutToken = await request(createApp()).get(
+      `/api/v1/reservations/${reservation.id}`,
+    );
+    const wrongToken = await request(createApp()).get(
+      `/api/v1/reservations/${reservation.id}?token=${"x".repeat(43)}`,
+    );
+    const account = await createUser("guest-buyer", "USER");
+    const beforeVerification = await request(createApp())
+      .get("/api/v1/me/tickets")
+      .set(authorization(account.token));
+    await prisma.user.update({
+      where: { id: account.user.id },
+      data: { emailVerified: true },
+    });
+    const afterVerification = await request(createApp())
+      .get("/api/v1/me/tickets")
+      .set(authorization(account.token));
+    const claimer = await createUser("guest-claimer", "USER");
+    const claim = (token: string, accessToken: string) =>
+      request(createApp())
+        .post(`/api/v1/reservations/${reservation.id}/claim`)
+        .set(authorization(token))
+        .send({ token: accessToken });
+    const badClaim = await claim(claimer.token, "x".repeat(43));
+    const claimed = await claim(claimer.token, reservation.accessToken);
+    const claimedAgain = await claim(claimer.token, reservation.accessToken);
+    const lateClaim = await claim(owner.token, reservation.accessToken);
+    const claimerTickets = await request(createApp())
+      .get("/api/v1/me/tickets")
+      .set(authorization(claimer.token));
+
+    expect(anonymous.status).toBe(400);
+    expect(anonymous.body.error.code).toBe("BUYER_REQUIRED");
+    expect(created.status).toBe(201);
+    expect(reservation).toEqual(
+      expect.objectContaining({
+        userId: null,
+        buyerEmail: guestEmail,
+        buyerName: "Guest Buyer",
+      }),
+    );
+    expect(reservation.tickets).toHaveLength(2);
+    expect(
+      new Set(
+        reservation.tickets.map(
+          (ticket: { qrPayload: string }) => ticket.qrPayload,
+        ),
+      ).size,
+    ).toBe(2);
+    expect(storedType.reservedCount).toBe(2);
+    expect(outboxCount).toBe(2);
+    expect(tooMany.status).toBe(409);
+    expect(tooMany.body.error.code).toBe("NOT_ENOUGH_TICKETS");
+    expect(byToken.status).toBe(200);
+    expect(byToken.body.data.reservation.tickets).toHaveLength(2);
+    expect(withoutToken.status).toBe(404);
+    expect(wrongToken.status).toBe(404);
+    expect(beforeVerification.body.data.tickets).toHaveLength(0);
+    expect(afterVerification.body.data.tickets).toHaveLength(2);
+    expect(badClaim.status).toBe(404);
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.data.reservation.userId).toBe(claimer.user.id);
+    expect(claimedAgain.status).toBe(200);
+    expect(lateClaim.status).toBe(409);
+    expect(lateClaim.body.error.code).toBe("RESERVATION_ALREADY_CLAIMED");
+    expect(claimerTickets.body.data.tickets).toHaveLength(2);
+  });
 });
 
 describe("ticket check-in", () => {
@@ -742,7 +851,7 @@ describe("ticket check-in", () => {
       ticketTypeId,
       "checkin-ticket",
     );
-    const qrPayload = reservation.body.data.reservation.ticket
+    const qrPayload = reservation.body.data.reservation.tickets[0]
       .qrPayload as string;
 
     const forbidden = await request(createApp())

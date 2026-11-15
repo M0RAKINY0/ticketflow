@@ -55,6 +55,7 @@ describe("ticket email", () => {
       eventTimezone: "Africa/Lagos",
       ticketTypeName: "General admission",
       qrCodeDataUrl: "data:image/png;base64,cG5nLWJ5dGVz",
+      reservationUrl: "https://ventra.example/reservations/r1?token=t1",
     });
 
     expect(deliveries).toEqual([
@@ -109,6 +110,7 @@ describe("ticket email", () => {
       eventTimezone: "Africa/Lagos",
       ticketTypeName: "General > VIP",
       qrCodeDataUrl: "data:image/png;base64,cG5nLWJ5dGVz",
+      reservationUrl: "https://ventra.example/reservations/r1?token=t1",
     });
 
     expect(messages[0]?.html).not.toContain("<script>");

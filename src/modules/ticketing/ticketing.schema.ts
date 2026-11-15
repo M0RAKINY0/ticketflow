@@ -103,7 +103,54 @@ export const updateTicketTypeSchema = z
     message: "At least one ticket type field is required",
   });
 
-export const createReservationSchema = z.object({ ticketTypeId: z.uuid() });
+export const MAX_TICKETS_PER_RESERVATION = 10;
+
+export const reservationParamsSchema = z.object({ reservationId: z.uuid() });
+export const reservationAccessQuerySchema = z.object({
+  token: z.string().min(1).max(100).optional(),
+});
+
+export const claimReservationSchema = z.object({
+  token: z.string().min(1).max(100),
+});
+
+export const createReservationSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          ticketTypeId: z.uuid(),
+          quantity: z.coerce
+            .number()
+            .int()
+            .min(1)
+            .max(MAX_TICKETS_PER_RESERVATION),
+        }),
+      )
+      .min(1)
+      .max(MAX_TICKETS_PER_RESERVATION),
+    // Required for guests. Signed-in buyers use their account name and email.
+    buyer: z
+      .object({
+        email: z.string().trim().toLowerCase().max(254).pipe(z.email()),
+        name: z.string().trim().min(1).max(200),
+      })
+      .optional(),
+  })
+  .refine(
+    ({ items }) =>
+      new Set(items.map((item) => item.ticketTypeId)).size === items.length,
+    { message: "Each ticket type can appear once", path: ["items"] },
+  )
+  .refine(
+    ({ items }) =>
+      items.reduce((total, item) => total + item.quantity, 0) <=
+      MAX_TICKETS_PER_RESERVATION,
+    {
+      message: `A reservation holds at most ${MAX_TICKETS_PER_RESERVATION} tickets`,
+      path: ["items"],
+    },
+  );
 export const idempotencyKeySchema = z.string().trim().min(1).max(200);
 export const createCheckInSchema = z.object({
   qrPayload: z.string().trim().min(1).max(300),
@@ -129,6 +176,7 @@ export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeSchema>;
 export type UpdateTicketTypeInput = z.infer<typeof updateTicketTypeSchema>;
 export type DiscoveryQuery = z.infer<typeof discoveryQuerySchema>;
+export type CreateReservationInput = z.infer<typeof createReservationSchema>;
 
 function isTimezone(value: string): boolean {
   try {
