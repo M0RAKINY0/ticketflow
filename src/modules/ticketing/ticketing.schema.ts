@@ -2,6 +2,12 @@ import { code as getCurrency } from "currency-codes";
 import countries from "i18n-iso-countries";
 import { z } from "zod";
 
+export const eventSlugSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
 const dateTime = z.iso.datetime({ offset: true });
 const money = z.coerce.number().finite().min(0).max(999_999_999.99);
 const eventCategory = z.enum([
@@ -50,6 +56,7 @@ export const ticketTypeParamsSchema = z.object({
 
 export const createEventSchema = z
   .object({
+    slug: eventSlugSchema.optional(),
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().min(1).max(10_000),
     startsAt: dateTime,
@@ -69,6 +76,7 @@ export const createEventSchema = z
 
 export const updateEventSchema = z
   .object({
+    slug: eventSlugSchema.optional(),
     title: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().min(1).max(10_000).optional(),
     startsAt: dateTime.optional(),
@@ -129,6 +137,7 @@ export const createReservationSchema = z
       )
       .min(1)
       .max(MAX_TICKETS_PER_RESERVATION),
+    turnstileToken: z.string().min(1).max(2048).optional(),
     // Required for guests. Signed-in buyers use their account name and email.
     buyer: z
       .object({

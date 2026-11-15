@@ -19,10 +19,11 @@ function deriveKey(secret: string): Buffer {
   return Buffer.from(hkdfSync("sha256", secret, "", ENCRYPTION_CONTEXT, 32));
 }
 
-export function encryptOtpDelivery(
-  input: OtpDeliveryInput,
+export function encryptEmailDelivery(
+  input: unknown,
   secret: string,
   now: Date,
+  expiryMs = OTP_EXPIRY_MS,
 ): OtpDeliveryJob {
   const iv = randomBytes(12);
   const cipher = createCipheriv(ENCRYPTION_ALGORITHM, deriveKey(secret), iv);
@@ -36,15 +37,15 @@ export function encryptOtpDelivery(
     ciphertext: ciphertext.toString("base64url"),
     iv: iv.toString("base64url"),
     tag: cipher.getAuthTag().toString("base64url"),
-    expiresAt: new Date(now.getTime() + OTP_EXPIRY_MS).toISOString(),
+    expiresAt: new Date(now.getTime() + expiryMs).toISOString(),
   };
 }
 
-export function decryptOtpDelivery(
+export function decryptEmailDelivery(
   job: OtpDeliveryJob,
   secret: string,
   now: Date,
-): OtpDeliveryInput {
+): unknown {
   if (now.getTime() >= new Date(job.expiresAt).getTime()) {
     throw new UnrecoverableError("OTP job expired");
   }
@@ -62,17 +63,34 @@ export function decryptOtpDelivery(
     ]).toString("utf8");
     const parsed = JSON.parse(plaintext) as unknown;
 
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      typeof (parsed as OtpDeliveryInput).email !== "string" ||
-      typeof (parsed as OtpDeliveryInput).otp !== "string"
-    ) {
-      throw new Error("Invalid OTP payload");
-    }
-
-    return parsed as OtpDeliveryInput;
+    return parsed;
   } catch {
     throw new UnrecoverableError("OTP job cannot be decrypted");
   }
+}
+
+export function encryptOtpDelivery(
+  input: OtpDeliveryInput,
+  secret: string,
+  now: Date,
+): OtpDeliveryJob {
+  return encryptEmailDelivery(input, secret, now);
+}
+export function decryptOtpDelivery(
+  job: OtpDeliveryJob,
+  secret: string,
+  now: Date,
+): OtpDeliveryInput {
+  const parsed = decryptEmailDelivery(
+    job,
+    secret,
+    now,
+  ) as OtpDeliveryInput | null;
+  if (
+    !parsed ||
+    typeof parsed.email !== "string" ||
+    typeof parsed.otp !== "string"
+  )
+    throw new UnrecoverableError("OTP job cannot be decrypted");
+  return parsed;
 }

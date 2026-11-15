@@ -56,7 +56,7 @@ describe("email queue workers", () => {
     );
     expect(state.reportQueueWorkerFailure).toHaveBeenNthCalledWith(
       2,
-      "ventra-ticket-email",
+      "ventra-reservation-email",
     );
     expect(
       JSON.stringify(state.reportQueueWorkerFailure.mock.calls),

@@ -9,11 +9,14 @@ import { limitVerificationEmail, redisAuthStorage } from "./redis.js";
 import { type VerificationOtpProducer } from "../modules/notifications/otp.producer.js";
 import { createApiOtpRuntime } from "./queues/api-otp-runtime.js";
 
+import type { NotificationProducer } from "../modules/notifications/account-email.js";
+
 const apiOtpRuntime =
   env.NODE_ENV === "test" ? undefined : createApiOtpRuntime();
 
 export function createAuth(
   options: {
+    notificationProducer?: NotificationProducer;
     rateLimitEnabled?: boolean;
     otpProducer?: VerificationOtpProducer;
     secondaryStorage?: SecondaryStorage;
@@ -35,7 +38,23 @@ export function createAuth(
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: env.FRONTEND_ORIGINS,
     database: prismaAdapter(prisma, { provider: "postgresql" }),
-    emailAndPassword: { enabled: true, requireEmailVerification },
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification,
+      resetPasswordTokenExpiresIn: 15 * 60,
+      revokeSessionsOnPasswordReset: true,
+      async sendResetPassword({ user, url }) {
+        const producer =
+          options.notificationProducer ?? apiOtpRuntime?.notificationProducer;
+        if (!producer)
+          throw new Error("Password reset delivery is not configured");
+        await producer.enqueue({
+          kind: "password-reset",
+          email: user.email,
+          url,
+        });
+      },
+    },
     secondaryStorage:
       options.secondaryStorage ??
       (env.NODE_ENV === "test" ? undefined : redisAuthStorage),
@@ -45,6 +64,8 @@ export function createAuth(
       window: 60,
       max: 100,
       customRules: {
+        "/request-password-reset": { window: 15 * 60, max: 3 },
+        "/reset-password": { window: 15 * 60, max: 5 },
         "/sign-in/email": { window: 15 * 60, max: 5 },
         "/sign-up/email": { window: 60 * 60, max: 5 },
         "/sign-in/social": { window: 60, max: 20 },
@@ -128,4 +149,11 @@ export const auth = createAuth();
 
 export async function closeAuthOtpProducer(): Promise<void> {
   await apiOtpRuntime?.close();
+}
+
+export async function enqueueAccountEmail(
+  input: import("../modules/notifications/account-email.js").AccountEmail,
+): Promise<void> {
+  if (!apiOtpRuntime) throw new Error("Account email queue is not configured");
+  await apiOtpRuntime.notificationProducer.enqueue(input);
 }

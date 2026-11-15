@@ -13,6 +13,11 @@ The frontend lives in a separate repository. This repository owns the API, datab
 - Guest checkout: anyone can reserve up to 10 tickets with a name and email, with or without an account.
 - Atomic capacity enforcement and per-buyer idempotent reservations.
 - Synchronous QR generation stored as a PNG data URL on each ticket.
+- Unique editable event slugs and public lookup by slug.
+- Owner/admin reservation totals, paginated attendees, and CSV export.
+- Password reset and guest ticket recovery through queued encrypted email jobs.
+- Server verification of Cloudflare Turnstile challenges before checkout.
+- One confirmation per reservation, with every ticket QR included.
 - Ticket delivery through Resend with the QR displayed inline and attached as a PNG, handled asynchronously after reservation.
 - Reservation, ticket, and QR retrieval for signed-in buyers, and by emailed link for guests.
 - Event-owner/admin ticket validation with exactly-once check-in.
@@ -252,3 +257,40 @@ PostgreSQL is the concurrency authority:
 - `CheckIn.ticketId` is unique as a second exactly-once safeguard.
 - Generated PNG QR data URLs are stored durably in `Ticket.qrCodeDataUrl`.
 - Successful ticket-email delivery is recorded in `Ticket.emailSentAt` and is not exposed in API responses.
+
+## Organizer storefront backend
+
+All paths below start with `/api/v1`. Responses use the existing `data` envelope.
+
+| Method and path                                     | Access and behavior                                                                                                                                                                                                                                                  |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /events/by-slug/:slug`                         | Public for published events. Drafts and cancelled events require the owner or an admin. Returns `data.event` with the same event fields as ID lookup.                                                                                                                |
+| `POST /events` and `PATCH /events/:eventId`         | Accept optional `slug`. Lowercase letters, digits, and single hyphens, at most 100 characters. Custom duplicates return `409 EVENT_SLUG_EXISTS`. Generated duplicates receive a random suffix. Title edits leave the slug unchanged. Edits remain limited to drafts. |
+| `GET /events/:eventId/sales`                        | Owner/admin only. Returns `data.summary` with event status, currency, reservation count, ticket count, reserved value, and breakdown by ticket type. Decimal amounts are strings with two decimal places.                                                            |
+| `GET /events/:eventId/attendees?page=1&pageSize=20` | Owner/admin only. Returns `data.items`, `total`, `page`, and `pageSize`. Maximum page size is 100. One row per ticket includes buyer details, ticket type, reservation status, and check-in time.                                                                    |
+| `GET /events/:eventId/attendees.csv`                | Owner/admin only. Streams CSV in batches of 500 tickets. Cells escape quotes, newlines, and spreadsheet formula prefixes. Access tokens and QR data are excluded.                                                                                                    |
+| `POST /reservations/recover`                        | Body `{ "email": "buyer@example.com" }`. Returns the same `202` message for every valid address. No lookup results appear in the response. The worker emails links only to the submitted address.                                                                    |
+
+Reports describe reservations, not collected money. There is no payment gateway. Cancelled reservations and void tickets do not contribute to reserved value. Attendee lists include their statuses. Cancelled event reports expose the event status so callers can label them correctly. New tickets capture their unit price at reservation time. The slug backfill includes a corrective migration for titles truncated at a hyphen. The migration backfills older tickets from their current ticket type price because historical prices were not stored.
+
+Recovery allows five requests per IP per 15 minutes and three messages per email per 15 minutes. Redis stores an HMAC of the email for throttling. Excess requests for the same email receive the normal `202` response without another email job. The worker sends up to 50 reservation links per email and continues in another email if needed. Queue failures return an error rather than claiming delivery was scheduled.
+
+### Password reset
+
+Better Auth owns reset tokens and their validation. `POST /api/v1/auth/request-password-reset` accepts `email` and a `redirectTo` URL on an allowed frontend origin. Its email callback queues an encrypted reset link. Tokens expire after 15 minutes. The link first visits Better Auth, which redirects to the frontend reset page with a token. Submit that token and `newPassword` to `POST /api/v1/auth/reset-password`. A successful reset revokes existing sessions. The frontend reset screens remain separate work.
+
+### Checkout bot protection
+
+Set `TURNSTILE_SECRET_KEY` on the API and configure the widget in the frontend with action `checkout`. Send the widget token as `turnstileToken` in the reservation body. `TURNSTILE_HOSTNAMES` is a comma-separated list of allowed frontend hostnames without protocols or paths. If omitted, the API derives hostnames from `FRONTEND_ORIGINS`.
+
+The API checks the token with Cloudflare before allocating inventory. It verifies success, hostname, and action. Invalid challenges return `400 BOT_VERIFICATION_FAILED`. Provider failures time out after five seconds and return `503 BOT_PROTECTION_UNAVAILABLE`. Production checkout also returns `503` if its secret is missing. Development and test mode bypass verification only when the secret is absent. Each submission needs a fresh challenge token, including retries with an existing reservation idempotency key.
+
+### Migration and worker deployment
+
+Stop the API and all old workers before migrating. Drain old ticket email work before applying `20261115100000_order_confirmation`. The new worker uses `ventra-reservation-email`, replacing `ventra-ticket-email`. Do not run an old worker after migration because outbox aggregate IDs now identify reservations. Auth jobs still use `ventra-auth-email`.
+
+Back up the hosted database and apply migrations with `npx prisma migrate deploy`. Deploy the API and worker from the same revision, configure Turnstile, and coordinate the frontend widget before accepting production checkouts. The migration replaces ticket outbox entries with one entry for each undelivered active reservation. A fully delivered reservation stays delivered. A partially delivered reservation receives one consolidated email containing all its tickets. Older queued jobs are not consumed by the new worker.
+
+Resend confirmation idempotency keys use reservation IDs. Delivery timestamps prevent later completed-job replays. As with the existing Resend integration, a crash after sending but before saving the timestamp relies on the provider's idempotency retention period. No exactly-once email guarantee is claimed beyond that period.
+
+Cloudinary, image uploads, payment gateways, fees, payouts, refunds, and frontend pages are outside these changes. Organizers can still provide an HTTPS cover image URL. Slug lookup provides event metadata for the frontend's share-preview handler.

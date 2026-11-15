@@ -1,6 +1,7 @@
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { env } from "../../src/config/env.js";
 import { createApp } from "../../src/app.js";
 import { ticketEmailSender } from "../../src/infrastructure/email.js";
 import { prisma } from "../../src/infrastructure/prisma.js";
@@ -414,7 +415,7 @@ describe("reservations and attendee tickets", () => {
       where: { id: ticketTypeId },
     });
     const outboxEvents = await prisma.outboxEvent.findMany({
-      where: { aggregateId: ticketId },
+      where: { aggregateId: first.body.data.reservation.id },
     });
     const reservations = await request(createApp())
       .get("/api/v1/me/reservations")
@@ -449,7 +450,7 @@ describe("reservations and attendee tickets", () => {
     expect(outboxEvents).toEqual([
       expect.objectContaining({
         type: "TICKET_EMAIL_REQUESTED",
-        aggregateId: ticketId,
+        aggregateId: first.body.data.reservation.id,
         publishedAt: null,
       }),
     ]);
@@ -498,7 +499,9 @@ describe("reservations and attendee tickets", () => {
     const [ticketType, outboxEvents] = await Promise.all([
       prisma.ticketType.findUniqueOrThrow({ where: { id: ticketTypeId } }),
       ticketId
-        ? prisma.outboxEvent.findMany({ where: { aggregateId: ticketId } })
+        ? prisma.outboxEvent.findMany({
+            where: { aggregateId: first.body.data.reservation.id },
+          })
         : Promise.resolve([]),
     ]);
 
@@ -528,7 +531,9 @@ describe("reservations and attendee tickets", () => {
     });
     const ticketId = reservations[0]?.tickets[0]?.id;
     const outboxEvents = ticketId
-      ? await prisma.outboxEvent.findMany({ where: { aggregateId: ticketId } })
+      ? await prisma.outboxEvent.findMany({
+          where: { aggregateId: reservations[0]!.id },
+        })
       : [];
     const ticketType = await prisma.ticketType.findUniqueOrThrow({
       where: { id: ticketTypeId },
@@ -559,7 +564,9 @@ describe("reservations and attendee tickets", () => {
       "repair-outbox",
     );
     const ticketId = first.body.data.reservation.tickets[0].id as string;
-    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+    await prisma.outboxEvent.deleteMany({
+      where: { aggregateId: first.body.data.reservation.id },
+    });
     const replay = await reserve(
       attendee.token,
       eventId,
@@ -567,7 +574,7 @@ describe("reservations and attendee tickets", () => {
       "repair-outbox",
     );
     const repairedEvents = await prisma.outboxEvent.findMany({
-      where: { aggregateId: ticketId },
+      where: { aggregateId: first.body.data.reservation.id },
     });
 
     expect(first.status).toBe(201);
@@ -576,7 +583,7 @@ describe("reservations and attendee tickets", () => {
     expect(repairedEvents).toHaveLength(1);
     expect(repairedEvents[0]).toMatchObject({
       type: "TICKET_EMAIL_REQUESTED",
-      aggregateId: ticketId,
+      aggregateId: first.body.data.reservation.id,
       publishedAt: null,
     });
   });
@@ -597,11 +604,13 @@ describe("reservations and attendee tickets", () => {
       "sent-outbox",
     );
     const ticketId = first.body.data.reservation.tickets[0].id as string;
-    await prisma.ticket.update({
-      where: { id: ticketId },
-      data: { emailSentAt: new Date() },
+    await prisma.reservation.update({
+      where: { id: first.body.data.reservation.id },
+      data: { confirmationSentAt: new Date() },
     });
-    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+    await prisma.outboxEvent.deleteMany({
+      where: { aggregateId: first.body.data.reservation.id },
+    });
 
     const replay = await reserve(
       attendee.token,
@@ -610,7 +619,7 @@ describe("reservations and attendee tickets", () => {
       "sent-outbox",
     );
     const outboxEvents = await prisma.outboxEvent.findMany({
-      where: { aggregateId: ticketId },
+      where: { aggregateId: first.body.data.reservation.id },
     });
 
     expect(replay.status).toBe(200);
@@ -633,33 +642,37 @@ describe("reservations and attendee tickets", () => {
       "race-sent-outbox",
     );
     const ticketId = first.body.data.reservation.tickets[0].id as string;
-    await prisma.outboxEvent.deleteMany({ where: { aggregateId: ticketId } });
+    await prisma.outboxEvent.deleteMany({
+      where: { aggregateId: first.body.data.reservation.id },
+    });
 
     let repairSettled = false;
     let repair: Promise<void> | undefined;
     await prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
         SELECT "id"
-        FROM "Ticket"
-        WHERE "id" = ${ticketId}::uuid
+        FROM "Reservation"
+        WHERE "id" = ${first.body.data.reservation.id}::uuid
         FOR UPDATE
       `;
 
-      repair = ticketingModel.ensureTicketEmailOutbox(ticketId).then(() => {
-        repairSettled = true;
-      });
+      repair = ticketingModel
+        .ensureReservationEmailOutbox(first.body.data.reservation.id)
+        .then(() => {
+          repairSettled = true;
+        });
       await wait(50);
 
       expect(repairSettled).toBe(false);
-      await transaction.ticket.update({
-        where: { id: ticketId },
-        data: { emailSentAt: new Date() },
+      await transaction.reservation.update({
+        where: { id: first.body.data.reservation.id },
+        data: { confirmationSentAt: new Date() },
       });
     });
     await repair;
 
     const outboxEvents = await prisma.outboxEvent.findMany({
-      where: { aggregateId: ticketId },
+      where: { aggregateId: first.body.data.reservation.id },
     });
 
     expect(outboxEvents).toHaveLength(0);
@@ -755,9 +768,7 @@ describe("reservations and attendee tickets", () => {
     });
     const outboxCount = await prisma.outboxEvent.count({
       where: {
-        aggregateId: {
-          in: reservation.tickets.map((ticket: { id: string }) => ticket.id),
-        },
+        aggregateId: reservation.id,
       },
     });
     const byToken = await request(createApp()).get(
@@ -813,7 +824,7 @@ describe("reservations and attendee tickets", () => {
       ).size,
     ).toBe(2);
     expect(storedType.reservedCount).toBe(2);
-    expect(outboxCount).toBe(2);
+    expect(outboxCount).toBe(1);
     expect(tooMany.status).toBe(409);
     expect(tooMany.body.error.code).toBe("NOT_ENOUGH_TICKETS");
     expect(byToken.status).toBe(200);
@@ -892,4 +903,144 @@ describe("ticket check-in", () => {
     expect(invalidQr.status).toBe(400);
     expect(invalidQr.body.error.code).toBe("INVALID_QR_PAYLOAD");
   }, 15_000);
+});
+
+describe("organizer storefront backend", () => {
+  it("generates unique stable slugs, supports custom slugs, and keeps draft lookup private", async () => {
+    const owner = await createUser("slug-owner", "USER");
+    const first = await createEvent(owner.token, "Lagos Live");
+    const second = await createEvent(owner.token, "Lagos Live");
+    expect(first.body.data.event.slug).toBe("lagos-live");
+    expect(second.body.data.event.slug).toMatch(/^lagos-live-.+/);
+    const event = first.body.data.event;
+    expect(
+      (await request(createApp()).get(`/api/v1/events/by-slug/${event.slug}`))
+        .status,
+    ).toBe(404);
+    const renamed = await request(createApp())
+      .patch(`/api/v1/events/${event.id}`)
+      .set(authorization(owner.token))
+      .send({ title: "New title", slug: "my-concert" });
+    expect(renamed.body.data.event.slug).toBe("my-concert");
+    const duplicate = await request(createApp())
+      .patch(`/api/v1/events/${second.body.data.event.id}`)
+      .set(authorization(owner.token))
+      .send({ slug: "my-concert" });
+    expect(duplicate.status).toBe(409);
+    await createTicketType(owner.token, event.id);
+    await publishEvent(owner.token, event.id);
+    const found = await request(createApp()).get(
+      "/api/v1/events/by-slug/my-concert",
+    );
+    expect(found.status).toBe(200);
+    expect(found.body.data.event.id).toBe(event.id);
+  });
+
+  it("reports reserved value and attendees only to the owner or admin without exposing QR secrets", async () => {
+    const owner = await createUser("report-owner", "USER");
+    const outsider = await createUser("report-outsider", "USER");
+    const event = (await createEvent(owner.token)).body.data.event;
+    const type = (await createTicketType(owner.token, event.id)).body.data
+      .ticketType;
+    await publishEvent(owner.token, event.id);
+    const reservation = await request(createApp())
+      .post(`/api/v1/events/${event.id}/reservations`)
+      .set("Idempotency-Key", "report-order")
+      .send({
+        buyer: {
+          name: "=HYPERLINK(1)",
+          email: "ticketing-test-report-guest@example.com",
+        },
+        items: [{ ticketTypeId: type.id, quantity: 2 }],
+      });
+    expect(reservation.status).toBe(201);
+    const denied = await request(createApp())
+      .get(`/api/v1/events/${event.id}/sales`)
+      .set(authorization(outsider.token));
+    expect(denied.status).toBe(403);
+    await prisma.ticketType.update({
+      where: { id: type.id },
+      data: { price: 9999 },
+    });
+    const sales = await request(createApp())
+      .get(`/api/v1/events/${event.id}/sales`)
+      .set(authorization(owner.token));
+    expect(sales.status).toBe(200);
+    expect(sales.body.data.summary).toMatchObject({
+      ticketCount: 2,
+      reservationCount: 1,
+      reservedValue: "15000.00",
+      currency: "NGN",
+    });
+    const attendees = await request(createApp())
+      .get(`/api/v1/events/${event.id}/attendees?pageSize=1`)
+      .set(authorization(owner.token));
+    expect(attendees.body.data.total).toBe(2);
+    expect(attendees.body.data.items).toHaveLength(1);
+    expect(JSON.stringify(attendees.body)).not.toMatch(
+      /qrCodeDataUrl|qrPayload|accessToken|idempotencyKey/,
+    );
+    const csv = await request(createApp())
+      .get(`/api/v1/events/${event.id}/attendees.csv`)
+      .set(authorization(owner.token));
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain("'=HYPERLINK(1)");
+    expect(csv.headers["content-type"]).toContain("text/csv");
+  });
+});
+
+it("creates a single outbox entry for a multi-ticket guest reservation", async () => {
+  const owner = await createUser("email-order-owner", "USER");
+  const event = (await createEvent(owner.token)).body.data.event;
+  const type = (await createTicketType(owner.token, event.id)).body.data
+    .ticketType;
+  await publishEvent(owner.token, event.id);
+  const result = await request(createApp())
+    .post(`/api/v1/events/${event.id}/reservations`)
+    .set("Idempotency-Key", "one-order")
+    .send({
+      buyer: { name: "Guest", email: "ticketing-test-email-order@example.com" },
+      items: [{ ticketTypeId: type.id, quantity: 2 }],
+    });
+  expect(result.status).toBe(201);
+  expect(
+    await prisma.outboxEvent.count({
+      where: { aggregateId: result.body.data.reservation.id },
+    }),
+  ).toBe(1);
+});
+
+it("rejects failed bot verification before allocating tickets", async () => {
+  const owner = await createUser("bot-owner", "USER");
+  const event = (await createEvent(owner.token)).body.data.event;
+  const type = (await createTicketType(owner.token, event.id)).body.data
+    .ticketType;
+  await publishEvent(owner.token, event.id);
+  const previous = env.TURNSTILE_SECRET_KEY;
+  try {
+    env.TURNSTILE_SECRET_KEY = "test-secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: false }), { status: 200 }),
+    );
+    const response = await request(createApp())
+      .post(`/api/v1/events/${event.id}/reservations`)
+      .set("Idempotency-Key", "bot-attempt")
+      .send({
+        turnstileToken: "invalid",
+        buyer: { name: "Guest", email: "ticketing-test-bot@example.com" },
+        items: [{ ticketTypeId: type.id, quantity: 1 }],
+      });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("BOT_VERIFICATION_FAILED");
+    expect(
+      (await prisma.ticketType.findUniqueOrThrow({ where: { id: type.id } }))
+        .reservedCount,
+    ).toBe(0);
+    expect(
+      await prisma.reservation.count({ where: { eventId: event.id } }),
+    ).toBe(0);
+  } finally {
+    if (previous === undefined) delete env.TURNSTILE_SECRET_KEY;
+    else env.TURNSTILE_SECRET_KEY = previous;
+  }
 });

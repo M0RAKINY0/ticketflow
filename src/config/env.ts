@@ -23,6 +23,8 @@ const environmentSchema = z.object({
     .min(1)
     .max(100_000)
     .default(20),
+  TURNSTILE_SECRET_KEY: z.string().trim().min(1).optional(),
+  TURNSTILE_HOSTNAMES: z.string().trim().min(1).optional(),
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
   BETTER_AUTH_SECRET: z.string().min(32),

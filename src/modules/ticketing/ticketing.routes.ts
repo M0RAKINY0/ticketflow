@@ -9,6 +9,7 @@ import {
   createTicketTypeController,
   deleteTicketTypeController,
   getEventController,
+  getEventBySlugController,
   getReservationController,
   getTicketController,
   getTicketQrController,
@@ -28,7 +29,28 @@ import {
   reservationCheckout,
 } from "./ticketing.middleware.js";
 
+import {
+  salesController,
+  attendeesController,
+  attendeeExportController,
+} from "./reporting.controller.js";
+
+import { recoverTicketsController } from "./recovery.controller.js";
+import { createRateLimiter } from "../../middleware/security.middleware.js";
+
 export const ticketingRouter = Router();
+
+ticketingRouter.post(
+  "/reservations/recover",
+  createRateLimiter(15 * 60 * 1000, 5),
+  recoverTicketsController,
+);
+
+ticketingRouter.get(
+  "/events/by-slug/:slug",
+  ...optionalAuthentication,
+  getEventBySlugController,
+);
 
 ticketingRouter.get("/events", ...optionalAuthentication, listEventsController);
 
@@ -130,4 +152,20 @@ ticketingRouter.get(
   "/events/:eventId/check-ins",
   ...authenticated,
   listCheckInsController,
+);
+
+ticketingRouter.get(
+  "/events/:eventId/sales",
+  ...authenticated,
+  salesController,
+);
+ticketingRouter.get(
+  "/events/:eventId/attendees",
+  ...authenticated,
+  attendeesController,
+);
+ticketingRouter.get(
+  "/events/:eventId/attendees.csv",
+  ...authenticated,
+  attendeeExportController,
 );

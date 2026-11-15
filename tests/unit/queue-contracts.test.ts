@@ -12,14 +12,16 @@ import {
 const ticketUuid = "c0a8012e-2e4f-4ba6-b0e9-fdfde5ff2e2c";
 
 describe("email queue contracts", () => {
-  it("accepts a ticket email job with a UUID ticket ID", () => {
-    expect(parseTicketEmailJob({ ticketId: ticketUuid })).toEqual({
-      ticketId: ticketUuid,
+  it("accepts a ticket email job with a UUID reservation ID", () => {
+    expect(parseTicketEmailJob({ reservationId: ticketUuid })).toEqual({
+      reservationId: ticketUuid,
     });
   });
 
-  it("rejects a ticket email job without a UUID ticket ID", () => {
-    expect(() => parseTicketEmailJob({ ticketId: "not-a-uuid" })).toThrow();
+  it("rejects a ticket email job without a UUID reservation ID", () => {
+    expect(() =>
+      parseTicketEmailJob({ reservationId: "not-a-uuid" }),
+    ).toThrow();
   });
 
   it("rejects an invalid OTP delivery envelope", () => {

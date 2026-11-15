@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const AUTH_EMAIL_QUEUE = "ventra-auth-email";
-export const TICKET_EMAIL_QUEUE = "ventra-ticket-email";
+export const TICKET_EMAIL_QUEUE = "ventra-reservation-email";
 
-const ticketEmailJobSchema = z.object({ ticketId: z.uuid() }).strict();
+const ticketEmailJobSchema = z.object({ reservationId: z.uuid() }).strict();
 const otpDeliveryJobSchema = z
   .object({
     version: z.literal(1),

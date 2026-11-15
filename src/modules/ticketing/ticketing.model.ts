@@ -141,21 +141,13 @@ export const ticketingModel = {
     });
   },
 
-  async ensureTicketEmailOutbox(ticketId: string): Promise<void> {
+  async ensureReservationEmailOutbox(reservationId: string): Promise<void> {
     await prisma.$executeRaw`
-      WITH eligible_ticket AS (
-        SELECT "id"
-        FROM "Ticket"
-        WHERE "id" = ${ticketId}::uuid
-          AND "emailSentAt" IS NULL
-        FOR UPDATE
+      WITH eligible_order AS (
+        SELECT "id" FROM "Reservation" WHERE "id" = ${reservationId}::uuid AND "confirmationSentAt" IS NULL AND "status" = 'CONFIRMED' FOR UPDATE
       )
       INSERT INTO "OutboxEvent" ("id", "type", "aggregateId")
-      SELECT
-        gen_random_uuid(),
-        ${OutboxEventType.TICKET_EMAIL_REQUESTED}::"OutboxEventType",
-        "id"
-      FROM eligible_ticket
+      SELECT gen_random_uuid(), ${OutboxEventType.TICKET_EMAIL_REQUESTED}::"OutboxEventType", "id" FROM eligible_order
       ON CONFLICT ("type", "aggregateId") DO NOTHING
     `;
   },

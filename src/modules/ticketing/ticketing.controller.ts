@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 
+import { env } from "../../config/env.js";
+import { verifyTurnstile } from "../../infrastructure/turnstile.js";
 import { AppError } from "../../shared/errors.js";
 import { success } from "../../shared/response.js";
 import {
@@ -11,6 +13,7 @@ import {
   createTicketTypeSchema,
   discoveryQuerySchema,
   eventIdParamsSchema,
+  eventSlugSchema,
   idempotencyKeySchema,
   reservationAccessQuerySchema,
   reservationParamsSchema,
@@ -28,6 +31,7 @@ import {
   createTicketType,
   deleteTicketType,
   getEvent,
+  getEventBySlug,
   getReservation,
   getTicket,
   getTicketQr,
@@ -221,6 +225,15 @@ export async function createReservationController(
     const idempotencyKey = idempotencyKeySchema.parse(
       request.header("idempotency-key"),
     );
+    await verifyTurnstile(input.turnstileToken, {
+      secret: env.TURNSTILE_SECRET_KEY,
+      hostnames:
+        env.TURNSTILE_HOSTNAMES?.split(",")
+          .map((host) => host.trim())
+          .filter(Boolean) ??
+        env.FRONTEND_ORIGINS.map((origin) => new URL(origin).hostname),
+      production: env.NODE_ENV === "production",
+    });
     const result = await createReservation(
       eventId,
       input,
@@ -355,6 +368,21 @@ export async function listCheckInsController(
     const { eventId } = eventIdParamsSchema.parse(request.params);
     const checkIns = await listCheckIns(eventId, request.principal!);
     response.status(200).json(success({ checkIns }));
+  } catch (error) {
+    next(mapValidationError(error));
+  }
+}
+
+export async function getEventBySlugController(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+) {
+  try {
+    const slug = eventSlugSchema.parse(request.params.slug);
+    response.json(
+      success({ event: await getEventBySlug(slug, request.principal) }),
+    );
   } catch (error) {
     next(mapValidationError(error));
   }

@@ -11,6 +11,7 @@ import { env } from "../../src/config/env.js";
 import { createAuth } from "../../src/infrastructure/auth.js";
 import {
   ticketEmailSender,
+  accountEmailSender,
   verificationEmailSender,
   type TicketEmailInput,
 } from "../../src/infrastructure/email.js";
@@ -30,6 +31,11 @@ let apiOtpRuntime: ReturnType<typeof createApiOtpRuntime>;
 let redisRunning = true;
 const verificationCodes = new Map<string, string>();
 const ticketDeliveries: TicketEmailInput[] = [];
+const resetDeliveries: string[] = [];
+const recoveryDeliveries: Array<{
+  email: string;
+  links: Array<{ title: string; url: string }>;
+}> = [];
 
 async function waitFor<T>(read: () => Promise<T | undefined> | T | undefined) {
   const deadline = Date.now() + 30_000;
@@ -80,10 +86,21 @@ beforeAll(async () => {
     },
   );
 
+  vi.spyOn(accountEmailSender, "sendPasswordReset").mockImplementation(
+    async (_email, url) => {
+      resetDeliveries.push(url);
+    },
+  );
+  vi.spyOn(accountEmailSender, "sendRecovery").mockImplementation(
+    async (email, links) => {
+      recoveryDeliveries.push({ email, links });
+    },
+  );
   apiOtpRuntime = createApiOtpRuntime();
   const auth = createAuth({
     requireEmailVerification: true,
     otpProducer: apiOtpRuntime.otpProducer,
+    notificationProducer: apiOtpRuntime.notificationProducer,
     rateLimitEnabled: false,
     limitVerificationEmail: async () => undefined,
   });
@@ -187,9 +204,10 @@ describe("BullMQ email flow", () => {
     const reservation = await attendee
       .post(`/api/v1/events/${eventId}/reservations`)
       .set("Idempotency-Key", "bullmq-e2e-reservation")
-      .send({ items: [{ ticketTypeId, quantity: 1 }] });
+      .send({ items: [{ ticketTypeId, quantity: 2 }] });
     expect(reservation.status).toBe(201);
     const ticketId = reservation.body.data.reservation.tickets[0].id as string;
+    const reservationId = reservation.body.data.reservation.id as string;
 
     const committedBeforeRedis = await prisma.ticket.findUniqueOrThrow({
       where: { id: ticketId },
@@ -199,7 +217,7 @@ describe("BullMQ email flow", () => {
       where: {
         type_aggregateId: {
           type: "TICKET_EMAIL_REQUESTED",
-          aggregateId: ticketId,
+          aggregateId: reservationId,
         },
       },
     });
@@ -220,13 +238,13 @@ describe("BullMQ email flow", () => {
       return stored?.emailSentAt ?? undefined;
     });
     expect(ticketDeliveries).toHaveLength(1);
-    expect(ticketDeliveries[0]?.ticketId).toBe(ticketId);
+    expect(ticketDeliveries[0]?.reservationId).toBe(reservationId);
 
     const publishedOutbox = await prisma.outboxEvent.findUniqueOrThrow({
       where: {
         type_aggregateId: {
           type: "TICKET_EMAIL_REQUESTED",
-          aggregateId: ticketId,
+          aggregateId: reservationId,
         },
       },
     });
@@ -240,15 +258,17 @@ describe("BullMQ email flow", () => {
       const jobs = await jobInspectionQueues.ticketEmailQueue.getJobs([
         "completed",
       ]);
-      return jobs.find((job) => job.id === `ticket-email-${ticketId}`);
+      return jobs.find(
+        (job) => job.id === `reservation-email-${reservationId}`,
+      );
     });
-    expect(ticketJob.data).toEqual({ ticketId });
+    expect(ticketJob.data).toEqual({ reservationId });
     await jobInspectionQueues.close();
 
     const replay = await attendee
       .post(`/api/v1/events/${eventId}/reservations`)
       .set("Idempotency-Key", "bullmq-e2e-reservation")
-      .send({ items: [{ ticketTypeId, quantity: 1 }] });
+      .send({ items: [{ ticketTypeId, quantity: 2 }] });
     expect(replay.status).toBe(200);
 
     const [reservationCount, ticketCount, outboxCount, storedType] =
@@ -259,13 +279,32 @@ describe("BullMQ email flow", () => {
         prisma.ticket.count({
           where: { reservationId: committedBeforeRedis.reservationId },
         }),
-        prisma.outboxEvent.count({ where: { aggregateId: ticketId } }),
+        prisma.outboxEvent.count({ where: { aggregateId: reservationId } }),
         prisma.ticketType.findUniqueOrThrow({ where: { id: ticketTypeId } }),
       ]);
     expect(reservationCount).toBe(1);
-    expect(ticketCount).toBe(1);
+    expect(ticketCount).toBe(2);
     expect(outboxCount).toBe(1);
-    expect(storedType.reservedCount).toBe(1);
+    expect(storedType.reservedCount).toBe(2);
     expect(ticketDeliveries).toHaveLength(1);
+    expect(ticketDeliveries[0]?.tickets).toHaveLength(2);
+    await apiOtpRuntime.notificationProducer.enqueue({
+      kind: "ticket-recovery",
+      email: attendeeEmail,
+    });
+    await waitFor(() =>
+      recoveryDeliveries.length ? recoveryDeliveries[0] : undefined,
+    );
+    expect(recoveryDeliveries[0]?.email).toBe(attendeeEmail);
+    expect(recoveryDeliveries[0]?.links[0]?.url).toContain(reservationId);
+    const resetRequest = await attendee
+      .post("/api/v1/auth/request-password-reset")
+      .send({
+        email: attendeeEmail,
+        redirectTo: "http://localhost:5173/reset-password",
+      });
+    expect(resetRequest.status).toBe(200);
+    const resetUrl = await waitFor(() => resetDeliveries[0]);
+    expect(resetUrl).toContain("/reset-password/");
   });
 });

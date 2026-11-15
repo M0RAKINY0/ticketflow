@@ -38,3 +38,18 @@ export async function limitVerificationEmail(email: string): Promise<void> {
   );
   if (count > 3) throw new Error("Too many verification email requests");
 }
+
+export async function allowRecoveryEmail(email: string): Promise<boolean> {
+  const digest = createHmac("sha256", env.BETTER_AUTH_SECRET)
+    .update(email)
+    .digest("hex");
+  const count = Number(
+    await redis.eval(
+      'local n=redis.call("INCR",KEYS[1]); if n==1 then redis.call("EXPIRE",KEYS[1],ARGV[1]) end; return n',
+      1,
+      `ventra:recovery:${digest}`,
+      15 * 60,
+    ),
+  );
+  return count <= 3;
+}

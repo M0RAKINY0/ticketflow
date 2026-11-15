@@ -28,16 +28,18 @@ export type VerificationEmailSender = {
 };
 
 export type TicketEmailInput = {
-  ticketId: string;
-  publicId: string;
+  reservationId: string;
   recipientEmail: string;
   attendeeName: string;
   eventName: string;
   eventStartsAt: Date;
   eventTimezone: string;
-  ticketTypeName: string;
-  qrCodeDataUrl: string;
   reservationUrl: string;
+  tickets: Array<{
+    publicId: string;
+    ticketTypeName: string;
+    qrCodeDataUrl: string;
+  }>;
 };
 
 export type TicketEmailSender = {
@@ -66,47 +68,45 @@ export function createTicketEmailSender(
 ): TicketEmailSender {
   return {
     async sendTicket(input) {
-      const qrContent = input.qrCodeDataUrl.replace(
-        /^data:image\/png;base64,/,
-        "",
-      );
       const eventDate = new Intl.DateTimeFormat("en-GB", {
         dateStyle: "long",
         timeStyle: "short",
         timeZone: input.eventTimezone,
       }).format(input.eventStartsAt);
-      const attendeeName = escapeHtml(input.attendeeName);
-      const eventName = escapeHtml(input.eventName);
-      const ticketTypeName = escapeHtml(input.ticketTypeName);
-      const publicId = escapeHtml(input.publicId);
-      const reservationUrl = escapeHtml(input.reservationUrl);
       const result = await transport.send(
         {
           from: transport.from,
           to: input.recipientEmail,
-          subject: `Your ticket for ${input.eventName}`,
+          subject: `Your tickets for ${input.eventName}`,
           text: [
             `Hello ${input.attendeeName},`,
-            `Your ${input.ticketTypeName} ticket for ${input.eventName} is ready.`,
+            `Your tickets for ${input.eventName} are ready.`,
             `Event date: ${eventDate}`,
-            `Ticket reference: ${input.publicId}`,
-            "Your QR code is attached to this email.",
-            `See every ticket in this reservation: ${input.reservationUrl}`,
+            ...input.tickets.map(
+              (ticket) => `${ticket.ticketTypeName}: ${ticket.publicId}`,
+            ),
+            `View your reservation: ${input.reservationUrl}`,
           ].join("\n\n"),
-          html: `<p>Hello ${attendeeName},</p><p>Your ${ticketTypeName} ticket for ${eventName} is ready.</p><p>Event date: ${eventDate}<br>Ticket reference: ${publicId}</p><p><img src="cid:ticket-qr" alt="Ticket QR code"></p><p><a href="${reservationUrl}">See every ticket in this reservation</a></p>`,
-          attachments: [
+          html: `<p>Hello ${escapeHtml(input.attendeeName)},</p><p>Your tickets for ${escapeHtml(input.eventName)} are ready.</p><p>Event date: ${eventDate}</p>${input.tickets.map((ticket) => `<p>${escapeHtml(ticket.ticketTypeName)}: ${escapeHtml(ticket.publicId)}</p><img src="cid:ticket-qr-${escapeHtml(ticket.publicId)}" alt="Ticket QR code">`).join("")}<p><a href="${escapeHtml(input.reservationUrl)}">View your reservation</a></p>`,
+          attachments: input.tickets.flatMap((ticket) => [
             {
-              content: qrContent,
-              filename: `ventra-ticket-${input.publicId}-inline.png`,
-              contentId: "ticket-qr",
+              content: ticket.qrCodeDataUrl.replace(
+                /^data:image\/png;base64,/,
+                "",
+              ),
+              filename: `ventra-ticket-${ticket.publicId}-inline.png`,
+              contentId: `ticket-qr-${ticket.publicId}`,
             },
             {
-              content: qrContent,
-              filename: `ventra-ticket-${input.publicId}.png`,
+              content: ticket.qrCodeDataUrl.replace(
+                /^data:image\/png;base64,/,
+                "",
+              ),
+              filename: `ventra-ticket-${ticket.publicId}.png`,
             },
-          ],
+          ]),
         },
-        { idempotencyKey: `ticket-confirmation/${input.ticketId}` },
+        { idempotencyKey: `reservation-confirmation/${input.reservationId}` },
       );
       if (result.error) throw new Error("Email delivery failed");
     },
@@ -131,3 +131,39 @@ const resendTransport: EmailTransport = {
 export const verificationEmailSender =
   createVerificationEmailSender(resendTransport);
 export const ticketEmailSender = createTicketEmailSender(resendTransport);
+
+export function createAccountEmailSender(transport: EmailTransport) {
+  return {
+    async sendPasswordReset(email: string, url: string, key: string) {
+      const result = await transport.send(
+        {
+          from: transport.from,
+          to: email,
+          subject: "Reset your Ventra password",
+          text: `Reset your password: ${url}\nThis link expires in 15 minutes. Ignore this email if you did not request it.`,
+          html: `<p><a href="${escapeHtml(url)}">Reset your password</a></p><p>This link expires in 15 minutes. Ignore this email if you did not request it.</p>`,
+        },
+        { idempotencyKey: key },
+      );
+      if (result.error) throw new Error("Email delivery failed");
+    },
+    async sendRecovery(
+      email: string,
+      links: Array<{ title: string; url: string }>,
+      key: string,
+    ) {
+      const result = await transport.send(
+        {
+          from: transport.from,
+          to: email,
+          subject: "Your Ventra reservations",
+          text: links.map((link) => `${link.title}: ${link.url}`).join("\n\n"),
+          html: `<p>Your reservations:</p><ul>${links.map((link) => `<li><a href="${escapeHtml(link.url)}">${escapeHtml(link.title)}</a></li>`).join("")}</ul>`,
+        },
+        { idempotencyKey: key },
+      );
+      if (result.error) throw new Error("Email delivery failed");
+    },
+  };
+}
+export const accountEmailSender = createAccountEmailSender(resendTransport);

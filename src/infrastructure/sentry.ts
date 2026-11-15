@@ -59,7 +59,7 @@ export type BackgroundJobFailure = {
   jobId: string | undefined;
   attemptsMade: number;
   attempts: number | undefined;
-  ticketId?: string;
+  reservationId?: string;
   error?: unknown;
   jobData?: unknown;
 };
@@ -71,13 +71,13 @@ export function reportBackgroundJobFailure(input: BackgroundJobFailure): void {
     jobId: string | undefined;
     attemptsMade: number;
     attempts: number | undefined;
-    ticketId?: string;
+    reservationId?: string;
   } = {
     jobId: input.jobId,
     attemptsMade: input.attemptsMade,
     attempts: input.attempts,
   };
-  if (input.ticketId) context.ticketId = input.ticketId;
+  if (input.reservationId) context.reservationId = input.reservationId;
 
   Sentry.captureException(new Error("Background email job failed"), {
     tags: {
