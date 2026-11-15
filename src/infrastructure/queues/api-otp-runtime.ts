@@ -6,6 +6,11 @@ import {
 import { createQueueProducerConnection } from "./connections.js";
 import { createEmailQueues } from "./email-queues.js";
 
+import {
+  createNotificationProducer,
+  type NotificationProducer,
+} from "../../modules/notifications/account-email.js";
+
 type AuthEmailQueue = Parameters<typeof createOtpProducer>[0];
 
 type OtpQueueResources = {
@@ -24,6 +29,7 @@ type ApiOtpRuntimeOptions = {
 
 export type ApiOtpRuntime = {
   otpProducer: VerificationOtpProducer;
+  notificationProducer: NotificationProducer;
   close(): Promise<void>;
 };
 
@@ -37,6 +43,10 @@ export function createApiOtpRuntime(
 
   return {
     otpProducer: createOtpProducer(
+      queues.authEmailQueue,
+      options.secret ?? env.BETTER_AUTH_SECRET,
+    ),
+    notificationProducer: createNotificationProducer(
       queues.authEmailQueue,
       options.secret ?? env.BETTER_AUTH_SECRET,
     ),

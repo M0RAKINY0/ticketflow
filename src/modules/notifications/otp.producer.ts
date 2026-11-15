@@ -8,7 +8,7 @@ export type VerificationOtpProducer = {
 
 type AuthEmailQueue = {
   add(
-    name: "send-verification-otp",
+    name: string,
     data: OtpDeliveryJob,
     options: typeof OTP_JOB_OPTIONS,
   ): Promise<unknown>;

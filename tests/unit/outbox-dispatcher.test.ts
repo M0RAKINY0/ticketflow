@@ -51,8 +51,8 @@ describe("outbox dispatcher", () => {
 
     expect(queue.add).toHaveBeenCalledWith(
       "send-ticket-confirmation",
-      { ticketId: aggregateId },
-      { ...TICKET_JOB_OPTIONS, jobId: `ticket-email-${aggregateId}` },
+      { reservationId: aggregateId },
+      { ...TICKET_JOB_OPTIONS, jobId: `reservation-email-${aggregateId}` },
     );
     expect(repository.markPublished).toHaveBeenCalledWith(
       {

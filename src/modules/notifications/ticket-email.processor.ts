@@ -30,26 +30,38 @@ export function createTicketEmailProcessor({
       throw new UnrecoverableError("Ticket email job payload is invalid");
     }
 
-    const delivery = await repository.findDelivery(payload.ticketId);
+    const delivery = await repository.findDelivery(payload.reservationId);
     if (!delivery) {
       throw new UnrecoverableError("Ticket email target does not exist");
     }
-    if (delivery.emailSentAt) return;
-    if (!delivery.qrCodeDataUrl) {
+    if (
+      delivery.confirmationSentAt ||
+      delivery.status !== "CONFIRMED" ||
+      delivery.event.status === "CANCELLED"
+    )
+      return;
+    if (
+      !delivery.tickets.length ||
+      delivery.tickets.some(
+        (ticket) => !ticket.qrCodeDataUrl || ticket.status === "VOID",
+      )
+    ) {
       throw new UnrecoverableError("Ticket QR code is not ready");
     }
 
     await sender.sendTicket({
-      ticketId: delivery.id,
-      publicId: delivery.publicId,
-      recipientEmail: delivery.reservation.buyerEmail,
-      attendeeName: delivery.reservation.buyerName,
-      eventName: delivery.reservation.event.title,
-      eventStartsAt: delivery.reservation.event.startsAt,
-      eventTimezone: delivery.reservation.event.timezone,
-      ticketTypeName: delivery.ticketType.name,
-      qrCodeDataUrl: delivery.qrCodeDataUrl,
-      reservationUrl: reservationUrl(delivery.reservation.id),
+      reservationId: delivery.id,
+      recipientEmail: delivery.buyerEmail,
+      attendeeName: delivery.buyerName,
+      eventName: delivery.event.title,
+      eventStartsAt: delivery.event.startsAt,
+      eventTimezone: delivery.event.timezone,
+      tickets: delivery.tickets.map((ticket) => ({
+        publicId: ticket.publicId,
+        ticketTypeName: ticket.ticketType.name,
+        qrCodeDataUrl: ticket.qrCodeDataUrl!,
+      })),
+      reservationUrl: reservationUrl(delivery.id),
     });
     await repository.markSent(delivery.id, clock());
   };

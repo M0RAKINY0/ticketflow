@@ -90,10 +90,10 @@ export function createOutboxDispatcher({
         try {
           await queue.add(
             "send-ticket-confirmation",
-            { ticketId: event.aggregateId },
+            { reservationId: event.aggregateId },
             {
               ...TICKET_JOB_OPTIONS,
-              jobId: `ticket-email-${event.aggregateId}`,
+              jobId: `reservation-email-${event.aggregateId}`,
             },
           );
           await repository.markPublished(event, clock());

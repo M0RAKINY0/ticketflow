@@ -93,9 +93,13 @@ export async function getEvent(eventId: string, principal?: Principal) {
   return event;
 }
 
-export function createEvent(organizerId: string, input: CreateEventInput) {
+export async function createEvent(
+  organizerId: string,
+  input: CreateEventInput,
+) {
   const data: Prisma.EventUncheckedCreateInput = {
     organizerId,
+    slug: input.slug ?? slugFromTitle(input.title),
     title: input.title,
     description: input.description,
     startsAt: new Date(input.startsAt),
@@ -110,7 +114,16 @@ export function createEvent(organizerId: string, input: CreateEventInput) {
   if (input.coverImageUrl !== undefined)
     data.coverImageUrl = input.coverImageUrl;
 
-  return ticketingModel.createEvent(data);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await ticketingModel.createEvent(data);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      if (input.slug) throw slugConflict();
+      data.slug = `${slugFromTitle(input.title)}-${randomUUID().slice(0, 8)}`;
+    }
+  }
+  throw slugConflict();
 }
 
 export async function updateEvent(
@@ -136,6 +149,7 @@ export async function updateEvent(
   }
 
   const data: Prisma.EventUpdateInput = {};
+  if (input.slug !== undefined) data.slug = input.slug;
   if (input.title !== undefined) data.title = input.title;
   if (input.description !== undefined) data.description = input.description;
   if (input.startsAt !== undefined) data.startsAt = startsAt;
@@ -149,7 +163,12 @@ export async function updateEvent(
   if (input.currency !== undefined) data.currency = input.currency;
   if (input.timezone !== undefined) data.timezone = input.timezone;
 
-  return ticketingModel.updateEvent(eventId, data);
+  try {
+    return await ticketingModel.updateEvent(eventId, data);
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw slugConflict();
+    throw error;
+  }
 }
 
 export async function publishEvent(eventId: string, principal: Principal) {
@@ -353,6 +372,10 @@ export async function createReservation(
         }
       }
 
+      const prices = await transaction.ticketType.findMany({
+        where: { id: { in: items.map((item) => item.ticketTypeId) } },
+        select: { id: true, price: true },
+      });
       const created = await transaction.reservation.create({
         data: {
           userId: buyer.userId,
@@ -360,16 +383,19 @@ export async function createReservation(
           buyerEmail: buyer.email,
           buyerName: buyer.name,
           idempotencyKey,
-          tickets: { create: tickets },
+          tickets: {
+            create: tickets.map((ticket) => ({
+              ...ticket,
+              unitPrice: prices.find((type) => type.id === ticket.ticketTypeId)!
+                .price,
+            })),
+          },
         },
         include: reservationInclude,
       });
 
-      await transaction.outboxEvent.createMany({
-        data: tickets.map((ticket) => ({
-          type: "TICKET_EMAIL_REQUESTED" as const,
-          aggregateId: ticket.id,
-        })),
+      await transaction.outboxEvent.create({
+        data: { type: "TICKET_EMAIL_REQUESTED", aggregateId: created.id },
       });
 
       return created;
@@ -716,20 +742,21 @@ async function replayReservation<
     );
   }
 
-  await Promise.all(
-    reservation.tickets.map((ticket) =>
-      ticketingModel.ensureTicketEmailOutbox(ticket.id),
-    ),
-  );
+  await ticketingModel.ensureReservationEmailOutbox(reservation.id);
 
   return { created: false, reservation: decorateReservation(reservation) };
 }
 
 function decorateReservation<
-  Reservation extends { id: string; tickets: Array<{ publicId: string }> },
+  Reservation extends {
+    id: string;
+    tickets: Array<{ publicId: string }>;
+    confirmationSentAt?: Date | null;
+  },
 >(reservation: Reservation) {
+  const { confirmationSentAt: _sent, ...publicReservation } = reservation;
   return {
-    ...reservation,
+    ...publicReservation,
     tickets: reservation.tickets.map((ticket) => decorateTicket(ticket)),
     accessToken: createReservationAccessToken(reservation.id),
   };
@@ -769,4 +796,33 @@ function isUniqueConstraintError(error: unknown): boolean {
     "code" in error &&
     error.code === "P2002"
   );
+}
+
+function slugFromTitle(title: string): string {
+  return (
+    title
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60)
+      .replace(/-$/, "") || "event"
+  );
+}
+function slugConflict() {
+  return new AppError(
+    409,
+    "EVENT_SLUG_EXISTS",
+    "This event link is already in use",
+  );
+}
+export async function getEventBySlug(slug: string, principal?: Principal) {
+  const event = await prisma.event.findUnique({
+    where: { slug },
+    include: ticketingEventInclude,
+  });
+  if (!event || !canViewEvent(event.status, event.organizerId, principal))
+    throw new AppError(404, "EVENT_NOT_FOUND", "Event was not found");
+  return event;
 }

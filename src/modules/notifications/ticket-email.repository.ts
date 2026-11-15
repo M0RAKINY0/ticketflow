@@ -1,50 +1,58 @@
 import { prisma } from "../../infrastructure/prisma.js";
-
 export type TicketEmailDelivery = {
   id: string;
-  publicId: string;
-  qrCodeDataUrl: string | null;
-  emailSentAt: Date | null;
-  ticketType: { name: string };
-  reservation: {
+  confirmationSentAt: Date | null;
+  status: string;
+  buyerEmail: string;
+  buyerName: string;
+  event: { title: string; startsAt: Date; timezone: string; status: string };
+  tickets: Array<{
     id: string;
-    buyerEmail: string;
-    buyerName: string;
-    event: { title: string; startsAt: Date; timezone: string };
-  };
+    publicId: string;
+    qrCodeDataUrl: string | null;
+    status: string;
+    ticketType: { name: string };
+  }>;
 };
-
 export type TicketEmailRepository = {
-  findDelivery(ticketId: string): Promise<TicketEmailDelivery | null>;
-  markSent(ticketId: string, sentAt: Date): Promise<void>;
+  findDelivery(reservationId: string): Promise<TicketEmailDelivery | null>;
+  markSent(reservationId: string, sentAt: Date): Promise<void>;
 };
-
 export const ticketEmailRepository: TicketEmailRepository = {
-  async findDelivery(ticketId) {
-    return prisma.ticket.findUnique({
-      where: { id: ticketId },
+  findDelivery: (reservationId) =>
+    prisma.reservation.findUnique({
+      where: { id: reservationId },
       select: {
         id: true,
-        publicId: true,
-        qrCodeDataUrl: true,
-        emailSentAt: true,
-        ticketType: { select: { name: true } },
-        reservation: {
+        confirmationSentAt: true,
+        status: true,
+        buyerEmail: true,
+        buyerName: true,
+        event: {
+          select: { title: true, startsAt: true, timezone: true, status: true },
+        },
+        tickets: {
+          orderBy: { id: "asc" },
           select: {
             id: true,
-            buyerEmail: true,
-            buyerName: true,
-            event: { select: { title: true, startsAt: true, timezone: true } },
+            publicId: true,
+            qrCodeDataUrl: true,
+            status: true,
+            ticketType: { select: { name: true } },
           },
         },
       },
-    });
-  },
-
-  async markSent(ticketId, sentAt) {
-    await prisma.ticket.updateMany({
-      where: { id: ticketId, emailSentAt: null },
-      data: { emailSentAt: sentAt },
-    });
+    }),
+  async markSent(reservationId, sentAt) {
+    await prisma.$transaction([
+      prisma.reservation.updateMany({
+        where: { id: reservationId, confirmationSentAt: null },
+        data: { confirmationSentAt: sentAt },
+      }),
+      prisma.ticket.updateMany({
+        where: { reservationId, emailSentAt: null },
+        data: { emailSentAt: sentAt },
+      }),
+    ]);
   },
 };

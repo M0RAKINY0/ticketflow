@@ -8,6 +8,11 @@ const operations = [
   ["get", "/api/v1/users", "Users", true],
   ["patch", "/api/v1/users/{userId}/role", "Users", true],
   ["get", "/api/v1/events", "Events", false],
+  ["get", "/api/v1/events/by-slug/{slug}", "Events", false],
+  ["get", "/api/v1/events/{eventId}/sales", "Events", true],
+  ["get", "/api/v1/events/{eventId}/attendees", "Events", true],
+  ["get", "/api/v1/events/{eventId}/attendees.csv", "Events", true],
+  ["post", "/api/v1/reservations/recover", "Reservations", false],
   ["post", "/api/v1/events", "Events", true],
   ["get", "/api/v1/events/{eventId}", "Events", false],
   ["patch", "/api/v1/events/{eventId}", "Events", true],
@@ -46,22 +51,31 @@ for (const [method, path, tag, secured] of operations) {
     name: match[1],
     in: "path",
     required: true,
-    schema: { type: "string", format: "uuid" },
+    schema:
+      match[1] === "slug"
+        ? {
+            type: "string",
+            pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            maxLength: 100,
+          }
+        : { type: "string", format: "uuid" },
   }));
   ventraPaths[path] ??= {};
-  const requestSchema = path.endsWith("/role")
-    ? "RoleUpdate"
-    : path.endsWith("/claim")
-      ? "ReservationClaimInput"
-      : path.endsWith("/reservations")
-        ? "ReservationInput"
-        : path.endsWith("/check-ins")
-          ? "CheckInInput"
-          : path.includes("ticket-types")
-            ? "TicketTypeInput"
-            : path.includes("/events")
-              ? "EventInput"
-              : undefined;
+  const requestSchema = path.endsWith("/recover")
+    ? "TicketRecoveryInput"
+    : path.endsWith("/role")
+      ? "RoleUpdate"
+      : path.endsWith("/claim")
+        ? "ReservationClaimInput"
+        : path.endsWith("/reservations")
+          ? "ReservationInput"
+          : path.endsWith("/check-ins")
+            ? "CheckInInput"
+            : path.includes("ticket-types")
+              ? "TicketTypeInput"
+              : path.includes("/events")
+                ? "EventInput"
+                : undefined;
   if (path.endsWith("/reservations") && method === "post") {
     parameters.push({
       name: "Idempotency-Key",
@@ -80,6 +94,19 @@ for (const [method, path, tag, secured] of operations) {
       schema: { type: "string" },
     });
   }
+  if (path.endsWith("/attendees"))
+    parameters.push(
+      {
+        name: "page",
+        in: "query",
+        schema: { type: "integer", minimum: 1, maximum: 100000, default: 1 },
+      },
+      {
+        name: "pageSize",
+        in: "query",
+        schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+      },
+    );
   ventraPaths[path]![method] = {
     tags: [tag],
     summary: `${method.toUpperCase()} ${path}`,
@@ -105,6 +132,25 @@ for (const [method, path, tag, secured] of operations) {
     responses: {
       "200": { description: "Success" },
       "201": { description: "Created" },
+      ...(path.endsWith("/recover")
+        ? {
+            "202": {
+              description:
+                "If reservations match that email, we will send their links.",
+            },
+          }
+        : {}),
+      ...(path.endsWith(".csv")
+        ? {
+            "200": {
+              description: "Owner/admin attendee export",
+              content: { "text/csv": { schema: { type: "string" } } },
+            },
+          }
+        : {}),
+      "409": { $ref: "#/components/responses/Error" },
+      "429": { $ref: "#/components/responses/Error" },
+      "503": { $ref: "#/components/responses/Error" },
       "400": { $ref: "#/components/responses/Error" },
       "401": { $ref: "#/components/responses/Error" },
       "403": { $ref: "#/components/responses/Error" },
@@ -175,10 +221,24 @@ export async function createOpenAPIDocument(
           required: ["role"],
           properties: { role: { type: "string", enum: ["USER", "ADMIN"] } },
         },
+        TicketRecoveryInput: {
+          type: "object",
+          required: ["email"],
+          properties: {
+            email: { type: "string", format: "email", maxLength: 254 },
+          },
+        },
         ReservationInput: {
           type: "object",
           required: ["items"],
           properties: {
+            turnstileToken: {
+              type: "string",
+              minLength: 1,
+              maxLength: 2048,
+              description:
+                "Required when Turnstile is configured, including production. Widget action must be checkout.",
+            },
             items: {
               type: "array",
               minItems: 1,
@@ -235,6 +295,13 @@ export async function createOpenAPIDocument(
         EventInput: {
           type: "object",
           properties: {
+            slug: {
+              type: "string",
+              maxLength: 100,
+              pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              description:
+                "Optional on creation. Generated from the title and kept stable when the title changes. Editable on drafts. Must be unique.",
+            },
             title: { type: "string", example: "Lagos Live" },
             description: { type: "string" },
             startsAt: { type: "string", format: "date-time" },

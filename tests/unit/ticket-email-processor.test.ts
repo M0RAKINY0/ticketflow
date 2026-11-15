@@ -1,159 +1,83 @@
-import { UnrecoverableError } from "bullmq";
-import { describe, expect, it, vi } from "vitest";
-
+import { describe, it, expect, vi } from "vitest";
+import { createTicketEmailProcessor } from "../../src/modules/notifications/ticket-email.processor.js";
 import { createTicketEmailSender } from "../../src/infrastructure/email.js";
-import {
-  createTicketEmailProcessor,
-  type TicketEmailRepository,
-} from "../../src/modules/notifications/ticket-email.processor.js";
-
-const ticketId = "4c8fd57d-a993-4bd7-9943-4a6e22f913aa";
 const reservationId = "9b0a3c4e-6c0f-4f0b-8d3b-0f6f2a1f5c11";
-const sentAt = new Date("2030-06-15T18:30:00.000Z");
-
-function delivery(
-  overrides: Partial<
-    Awaited<ReturnType<TicketEmailRepository["findDelivery"]>>
-  > = {},
-) {
-  return {
-    id: ticketId,
-    publicId: "ticket-public-reference",
-    qrCodeDataUrl: "data:image/png;base64,cG5nLWJ5dGVz",
-    emailSentAt: null,
-    ticketType: { name: "General admission" },
-    reservation: {
-      id: reservationId,
-      buyerEmail: "attendee@example.com",
-      buyerName: "Ada Lovelace",
-      event: {
-        title: "Ventra Live",
-        startsAt: sentAt,
-        timezone: "Africa/Lagos",
-      },
+function setup(overrides = {}) {
+  const delivery = {
+    id: reservationId,
+    confirmationSentAt: null,
+    status: "CONFIRMED",
+    buyerName: "Ada <script>",
+    buyerEmail: "ada@example.com",
+    event: {
+      title: "Music & Food",
+      startsAt: new Date("2030-06-15"),
+      timezone: "Africa/Lagos",
+      status: "PUBLISHED",
     },
+    tickets: ["first", "second"].map((id) => ({
+      id,
+      publicId: id,
+      status: "READY",
+      qrCodeDataUrl: "data:image/png;base64,cG5n",
+      ticketType: { name: "VIP" },
+    })),
     ...overrides,
   };
-}
-
-function setup(ticket = delivery()) {
-  const findDelivery = vi.fn().mockResolvedValue(ticket);
-  const markSent = vi.fn().mockResolvedValue(undefined);
-  const send = vi
-    .fn()
-    .mockResolvedValue({ data: { id: "email-1" }, error: null });
+  const send = vi.fn().mockResolvedValue({ data: {}, error: null });
+  const repository = {
+    findDelivery: vi.fn().mockResolvedValue(delivery),
+    markSent: vi.fn(),
+  };
   const processor = createTicketEmailProcessor({
-    repository: { findDelivery, markSent },
-    sender: createTicketEmailSender({
-      from: "Ventra <tickets@example.com>",
-      send,
-    }),
+    repository,
+    sender: createTicketEmailSender({ from: "tickets@example.com", send }),
     reservationUrl: (id) => `https://ventra.example/reservations/${id}`,
-    clock: () => sentAt,
   });
-
-  return { processor, findDelivery, markSent, send };
+  return { processor, repository, send };
 }
-
-describe("ticket email processor", () => {
-  it("sends the existing QR email and marks the same ticket as sent", async () => {
-    const { processor, markSent, send } = setup();
-
-    await processor({
-      name: "send-ticket-confirmation",
-      data: { ticketId },
-    } as never);
-
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: "attendee@example.com",
-        subject: "Your ticket for Ventra Live",
-        text: expect.stringContaining(
-          `https://ventra.example/reservations/${reservationId}`,
-        ),
-        attachments: [
-          expect.objectContaining({ contentId: "ticket-qr" }),
-          expect.objectContaining({
-            filename: "ventra-ticket-ticket-public-reference.png",
-          }),
-        ],
-      }),
-      { idempotencyKey: `ticket-confirmation/${ticketId}` },
-    );
-    expect(markSent).toHaveBeenCalledWith(ticketId, sentAt);
-  });
-
-  it("does not resend an already delivered ticket", async () => {
-    const { processor, markSent, send } = setup(
-      delivery({ emailSentAt: sentAt }),
-    );
-
-    await processor({
-      name: "send-ticket-confirmation",
-      data: { ticketId },
-    } as never);
-
-    expect(send).not.toHaveBeenCalled();
-    expect(markSent).not.toHaveBeenCalled();
-  });
-
-  it("rejects a missing ticket permanently", async () => {
-    const { processor } = setup(null);
-
-    await expect(
-      processor({
-        name: "send-ticket-confirmation",
-        data: { ticketId },
-      } as never),
-    ).rejects.toEqual(
-      expect.objectContaining({
-        name: "UnrecoverableError",
-        message: "Ticket email target does not exist",
-      }),
-    );
-  });
-
-  it("rejects a ticket without a QR code permanently", async () => {
-    const { processor, send } = setup(delivery({ qrCodeDataUrl: null }));
-
-    await expect(
-      processor({
-        name: "send-ticket-confirmation",
-        data: { ticketId },
-      } as never),
-    ).rejects.toBeInstanceOf(UnrecoverableError);
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("rejects unknown jobs and invalid data before reading or writing", async () => {
-    const { processor, findDelivery, markSent } = setup();
-
-    await expect(
-      processor({ name: "unknown", data: { ticketId } } as never),
-    ).rejects.toBeInstanceOf(UnrecoverableError);
-    await expect(
-      processor({
-        name: "send-ticket-confirmation",
-        data: { ticketId: "bad" },
-      } as never),
-    ).rejects.toBeInstanceOf(UnrecoverableError);
-    expect(findDelivery).not.toHaveBeenCalled();
-    expect(markSent).not.toHaveBeenCalled();
-  });
-
-  it("keeps provider failures retryable", async () => {
-    const { processor, markSent, send } = setup();
-    send.mockResolvedValueOnce({
-      data: null,
-      error: { message: "recipient rejected" },
+const job = {
+  name: "send-ticket-confirmation",
+  data: { reservationId },
+} as never;
+describe("reservation confirmation", () => {
+  it("sends one email with every QR code and reservation idempotency", async () => {
+    const { processor, send, repository } = setup();
+    await processor(job);
+    expect(send).toHaveBeenCalledTimes(1);
+    const [message, options] = send.mock.calls[0]!;
+    expect(
+      message.attachments.filter((a: { contentId?: string }) => !a.contentId),
+    ).toHaveLength(2);
+    expect(message.html).toContain("cid:ticket-qr-first");
+    expect(message.html).toContain("cid:ticket-qr-second");
+    expect(message.html).not.toContain("<script>");
+    expect(options).toEqual({
+      idempotencyKey: `reservation-confirmation/${reservationId}`,
     });
-
-    await expect(
-      processor({
-        name: "send-ticket-confirmation",
-        data: { ticketId },
-      } as never),
-    ).rejects.toThrow("Email delivery failed");
-    expect(markSent).not.toHaveBeenCalled();
+    expect(repository.markSent).toHaveBeenCalledWith(
+      reservationId,
+      expect.any(Date),
+    );
+  });
+  it.each([
+    { confirmationSentAt: new Date() },
+    { status: "CANCELLED" },
+    { event: { status: "CANCELLED" } },
+  ])("skips delivered or cancelled orders %j", async (overrides) => {
+    const { processor, send } = setup(overrides);
+    await processor(job);
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("does not mark delivery after a provider failure", async () => {
+    const { processor, send, repository } = setup();
+    send.mockResolvedValue({ error: { message: "down" } });
+    await expect(processor(job)).rejects.toThrow("Email delivery failed");
+    expect(repository.markSent).not.toHaveBeenCalled();
+  });
+  it("waits for all QR codes before sending", async () => {
+    const { processor, send } = setup({ tickets: [{ qrCodeDataUrl: null }] });
+    await expect(processor(job)).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
   });
 });

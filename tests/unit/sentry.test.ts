@@ -108,12 +108,12 @@ describe("background job reporting", () => {
     sentry.isInitialized.mockReturnValue(true);
 
     reportBackgroundJobFailure({
-      queueName: "ventra-ticket-email",
+      queueName: "ventra-reservation-email",
       jobName: "send-ticket-confirmation",
-      jobId: "ticket-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+      jobId: "reservation-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
       attemptsMade: 5,
       attempts: 5,
-      ticketId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+      reservationId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
       error: new Error("recipient person@example.com otp 123456"),
       jobData: {
         email: "person@example.com",
@@ -128,15 +128,15 @@ describe("background job reporting", () => {
     expect(error).toEqual(new Error("Background email job failed"));
     expect(context).toEqual({
       tags: {
-        queue: "ventra-ticket-email",
+        queue: "ventra-reservation-email",
         job: "send-ticket-confirmation",
       },
       contexts: {
         background_job: {
-          jobId: "ticket-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+          jobId: "reservation-email-7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
           attemptsMade: 5,
           attempts: 5,
-          ticketId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
+          reservationId: "7f24d1ca-b9f0-4c0d-840f-2c3a20c0063f",
         },
       },
     });

@@ -1,7 +1,11 @@
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import type { Redis } from "ioredis";
 
-import { ticketEmailSender, verificationEmailSender } from "../email.js";
+import {
+  ticketEmailSender,
+  verificationEmailSender,
+  accountEmailSender,
+} from "../email.js";
 import {
   reportBackgroundJobFailure,
   reportQueueWorkerFailure,
@@ -17,6 +21,8 @@ import {
   type TicketEmailJob,
 } from "./contracts.js";
 
+import { createNotificationProcessor } from "../../modules/notifications/account-email.js";
+
 const QUEUE_PREFIX = "ventra:queue";
 
 type FailureJob = Job<unknown>;
@@ -31,13 +37,13 @@ function reportTerminalFailure(
     return;
   }
 
-  const ticketId =
+  const reservationId =
     queueName === TICKET_EMAIL_QUEUE &&
     typeof job.data === "object" &&
     job.data !== null &&
-    "ticketId" in job.data &&
-    typeof job.data.ticketId === "string"
-      ? job.data.ticketId
+    "reservationId" in job.data &&
+    typeof job.data.reservationId === "string"
+      ? job.data.reservationId
       : undefined;
   reportBackgroundJobFailure({
     queueName,
@@ -46,7 +52,7 @@ function reportTerminalFailure(
     attemptsMade: job.attemptsMade,
     attempts,
     error,
-    ...(ticketId ? { ticketId } : {}),
+    ...(reservationId ? { reservationId } : {}),
   });
 }
 
@@ -57,9 +63,20 @@ export function createEmailWorkers({
   connection: Redis;
   otpSecret: string;
 }) {
+  const otpProcessor = createOtpProcessor({
+    secret: otpSecret,
+    sender: verificationEmailSender,
+  });
+  const notificationProcessor = createNotificationProcessor({
+    secret: otpSecret,
+    sender: accountEmailSender,
+  });
   const authWorker = new Worker<OtpDeliveryJob>(
     AUTH_EMAIL_QUEUE,
-    createOtpProcessor({ secret: otpSecret, sender: verificationEmailSender }),
+    (job) =>
+      job.name === "send-account-email"
+        ? notificationProcessor(job)
+        : otpProcessor(job),
     { connection, prefix: QUEUE_PREFIX },
   );
   const ticketWorker = new Worker<TicketEmailJob>(
