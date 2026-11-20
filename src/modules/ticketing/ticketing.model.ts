@@ -141,6 +141,14 @@ export const ticketingModel = {
     });
   },
 
+  bumpReservationAccessVersion(reservationId: string) {
+    return prisma.reservation.update({
+      where: { id: reservationId },
+      data: { accessVersion: { increment: 1 } },
+      select: { id: true },
+    });
+  },
+
   async ensureReservationEmailOutbox(reservationId: string): Promise<void> {
     await prisma.$executeRaw`
       WITH eligible_order AS (

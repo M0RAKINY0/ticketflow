@@ -21,6 +21,7 @@ const config: Env = {
   GOOGLE_CLIENT_ID: "test-google-client-id",
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
   TICKET_QR_SECRET: "b".repeat(32),
+  RESERVATION_ACCESS_SECRET: "c".repeat(32),
 };
 
 describe("HTTP security", () => {

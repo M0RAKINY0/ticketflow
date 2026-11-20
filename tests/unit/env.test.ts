@@ -17,6 +17,7 @@ function validEnvironment(
     GOOGLE_CLIENT_ID: "google-client-id",
     GOOGLE_CLIENT_SECRET: "google-client-secret",
     TICKET_QR_SECRET: "q".repeat(32),
+    RESERVATION_ACCESS_SECRET: "r".repeat(32),
     REDIS_URL: "redis://localhost:6379",
     RESEND_API_KEY: "re_test_key",
     AUTH_EMAIL_FROM: "Ventra <auth@example.com>",

@@ -9,7 +9,10 @@ import {
 } from "../../infrastructure/queues/contracts.js";
 import { OTP_JOB_OPTIONS } from "../../infrastructure/queues/email-queues.js";
 import { prisma } from "../../infrastructure/prisma.js";
-import { createReservationUrl } from "../../utilities/reservation-access.js";
+import {
+  createReservationUrl,
+  RESERVATION_LINK_GRACE_MS,
+} from "../../utilities/reservation-access.js";
 const email = z.email();
 const schema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("password-reset"), email, url: z.url() }),
@@ -89,18 +92,30 @@ export function createNotificationProcessor({
     let page = 0;
     while (true) {
       const reservations = await prisma.reservation.findMany({
-        where: { buyerEmail: input.email },
+        // Skip events whose links have already expired.
+        where: {
+          buyerEmail: input.email,
+          event: {
+            endsAt: {
+              gte: new Date(Date.now() - RESERVATION_LINK_GRACE_MS),
+            },
+          },
+        },
         orderBy: { id: "asc" },
         take: 50,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        select: { id: true, event: { select: { title: true } } },
+        select: {
+          id: true,
+          accessVersion: true,
+          event: { select: { title: true } },
+        },
       });
       if (!reservations.length) break;
       await sender.sendRecovery(
         input.email,
         reservations.map((r) => ({
           title: r.event.title,
-          url: createReservationUrl(r.id),
+          url: createReservationUrl(r),
         })),
         `ticket-recovery/${key}/${page++}`,
       );

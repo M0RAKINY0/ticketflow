@@ -10,6 +10,7 @@ process.env.BETTER_AUTH_URL = "http://127.0.0.1:4400";
 process.env.GOOGLE_CLIENT_ID = "e2e-google-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "e2e-google-client-secret";
 process.env.TICKET_QR_SECRET = "q".repeat(32);
+process.env.RESERVATION_ACCESS_SECRET = "r".repeat(32);
 process.env.REDIS_URL = "redis://127.0.0.1:56379";
 process.env.RESEND_API_KEY = "re_e2e_not_used";
 process.env.AUTH_EMAIL_FROM = "Ventra E2E <e2e@example.com>";

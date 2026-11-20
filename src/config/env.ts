@@ -32,6 +32,9 @@ const environmentSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().trim().min(1),
   GOOGLE_CLIENT_SECRET: z.string().trim().min(1),
   TICKET_QR_SECRET: z.string().min(32),
+  // Signs guest reservation links. Kept apart from TICKET_QR_SECRET so
+  // rotating one never invalidates the other.
+  RESERVATION_ACCESS_SECRET: z.string().min(32),
   REDIS_URL: z
     .url()
     .refine(
@@ -92,6 +95,12 @@ export function parseEnv(input: NodeJS.ProcessEnv): Env {
 
   if (parsed.NODE_ENV === "production" && !input.FRONTEND_ORIGINS) {
     throw new Error("FRONTEND_ORIGINS must be set in production");
+  }
+
+  if (parsed.RESERVATION_ACCESS_SECRET === parsed.TICKET_QR_SECRET) {
+    throw new Error(
+      "RESERVATION_ACCESS_SECRET must differ from TICKET_QR_SECRET",
+    );
   }
 
   return {

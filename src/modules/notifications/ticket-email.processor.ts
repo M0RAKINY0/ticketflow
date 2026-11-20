@@ -15,7 +15,10 @@ export function createTicketEmailProcessor({
   repository: TicketEmailRepository;
   sender: TicketEmailSender;
   /** Builds the link a buyer follows to see every ticket in the reservation. */
-  reservationUrl: (reservationId: string) => string;
+  reservationUrl: (reservation: {
+    id: string;
+    accessVersion: number;
+  }) => string;
   clock?: () => Date;
 }): (job: Job) => Promise<void> {
   return async (job) => {
@@ -61,7 +64,7 @@ export function createTicketEmailProcessor({
         ticketTypeName: ticket.ticketType.name,
         qrCodeDataUrl: ticket.qrCodeDataUrl!,
       })),
-      reservationUrl: reservationUrl(delivery.id),
+      reservationUrl: reservationUrl(delivery),
     });
     await repository.markSent(delivery.id, clock());
   };

@@ -34,6 +34,12 @@ const operations = [
   ],
   ["post", "/api/v1/events/{eventId}/reservations", "Reservations", false],
   ["get", "/api/v1/reservations/{reservationId}", "Reservations", false],
+  [
+    "post",
+    "/api/v1/reservations/{reservationId}/reset-link",
+    "Reservations",
+    false,
+  ],
   ["post", "/api/v1/reservations/{reservationId}/claim", "Reservations", true],
   ["get", "/api/v1/me/reservations", "Reservations", true],
   ["get", "/api/v1/me/tickets", "Tickets", true],
@@ -67,15 +73,17 @@ for (const [method, path, tag, secured] of operations) {
       ? "RoleUpdate"
       : path.endsWith("/claim")
         ? "ReservationClaimInput"
-        : path.endsWith("/reservations")
-          ? "ReservationInput"
-          : path.endsWith("/check-ins")
-            ? "CheckInInput"
-            : path.includes("ticket-types")
-              ? "TicketTypeInput"
-              : path.includes("/events")
-                ? "EventInput"
-                : undefined;
+        : path.endsWith("/reset-link")
+          ? "ReservationLinkResetInput"
+          : path.endsWith("/reservations")
+            ? "ReservationInput"
+            : path.endsWith("/check-ins")
+              ? "CheckInInput"
+              : path.includes("ticket-types")
+                ? "TicketTypeInput"
+                : path.includes("/events")
+                  ? "EventInput"
+                  : undefined;
   if (path.endsWith("/reservations") && method === "post") {
     parameters.push({
       name: "Idempotency-Key",
@@ -115,7 +123,12 @@ for (const [method, path, tag, secured] of operations) {
         ? "Requires the ADMIN role."
         : path.endsWith("/reservations") && method === "post"
           ? "Open to guests and signed-in users. Guests must send a buyer name and email."
-          : undefined,
+          : path.endsWith("/reset-link")
+            ? "Kills every existing link to the reservation and emails a fresh one to the buyer. Send a live access token, or call as the signed-in owner or an admin. The new link never appears in the response."
+            : path.endsWith("/reservations/{reservationId}") ||
+                path.endsWith("/claim")
+              ? "Access-token links expire 30 days after the event ends and return 410 RESERVATION_LINK_EXPIRED."
+              : undefined,
     parameters,
     security: secured ? [{ sessionCookie: [] }, { bearerAuth: [] }] : [],
     requestBody:
@@ -139,6 +152,19 @@ for (const [method, path, tag, secured] of operations) {
                 "If reservations match that email, we will send their links.",
             },
           }
+        : {}),
+      ...(path.endsWith("/reset-link")
+        ? {
+            "202": {
+              description:
+                "Old links no longer work. A new link went to the buyer's email.",
+            },
+          }
+        : {}),
+      ...(path.endsWith("/reservations/{reservationId}") ||
+      path.endsWith("/claim") ||
+      path.endsWith("/reset-link")
+        ? { "410": { $ref: "#/components/responses/Error" } }
         : {}),
       ...(path.endsWith(".csv")
         ? {
@@ -271,6 +297,16 @@ export async function createOpenAPIDocument(
             token: {
               type: "string",
               description: "The reservation access token.",
+            },
+          },
+        },
+        ReservationLinkResetInput: {
+          type: "object",
+          properties: {
+            token: {
+              type: "string",
+              description:
+                "A live reservation access token. Signed-in owners and admins can send an empty body.",
             },
           },
         },
