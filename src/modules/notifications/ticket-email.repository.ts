@@ -2,6 +2,7 @@ import { prisma } from "../../infrastructure/prisma.js";
 export type TicketEmailDelivery = {
   id: string;
   confirmationSentAt: Date | null;
+  accessVersion: number;
   status: string;
   buyerEmail: string;
   buyerName: string;
@@ -25,6 +26,7 @@ export const ticketEmailRepository: TicketEmailRepository = {
       select: {
         id: true,
         confirmationSentAt: true,
+        accessVersion: true,
         status: true,
         buyerEmail: true,
         buyerName: true,

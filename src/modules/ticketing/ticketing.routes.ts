@@ -35,7 +35,10 @@ import {
   attendeeExportController,
 } from "./reporting.controller.js";
 
-import { recoverTicketsController } from "./recovery.controller.js";
+import {
+  recoverTicketsController,
+  resetReservationLinkController,
+} from "./recovery.controller.js";
 import { createRateLimiter } from "../../middleware/security.middleware.js";
 
 export const ticketingRouter = Router();
@@ -114,6 +117,13 @@ ticketingRouter.get(
   "/reservations/:reservationId",
   ...optionalAuthentication,
   getReservationController,
+);
+
+ticketingRouter.post(
+  "/reservations/:reservationId/reset-link",
+  createRateLimiter(15 * 60 * 1000, 5),
+  ...optionalAuthentication,
+  resetReservationLinkController,
 );
 
 ticketingRouter.post(

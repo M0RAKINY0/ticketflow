@@ -16,6 +16,7 @@ import {
 import {
   createReservationAccessToken,
   isReservationAccessToken,
+  isReservationLinkLive,
 } from "../../utilities/reservation-access.js";
 import type {
   CreateEventInput,
@@ -417,25 +418,40 @@ export async function createReservation(
   }
 }
 
-/** A valid access token opens the reservation. Otherwise the signed-in owner can. */
+/**
+ * Checks an emailed link. Returns the reservation for a live link, "expired"
+ * for a genuine link whose event ended over 30 days ago, and null otherwise.
+ * A wrong token and a missing reservation look the same to the caller.
+ */
+async function openReservationLink(reservationId: string, accessToken: string) {
+  const reservation = await ticketingModel.findReservation(reservationId);
+  if (!reservation || !isReservationAccessToken(reservation, accessToken))
+    return null;
+  if (!isReservationLinkLive(reservation.event.endsAt, new Date()))
+    return "expired" as const;
+  return reservation;
+}
+
+/** A live access token opens the reservation. Otherwise the signed-in owner can. */
 export async function getReservation(
   reservationId: string,
   accessToken?: string,
   principal?: Principal,
 ) {
-  const reservation =
-    accessToken && isReservationAccessToken(reservationId, accessToken)
-      ? await ticketingModel.findReservation(reservationId)
-      : principal
-        ? await ticketingModel.findReservation(
-            reservationId,
-            await ownedBy(principal.id),
-          )
-        : null;
+  const linked = accessToken
+    ? await openReservationLink(reservationId, accessToken)
+    : null;
+  if (linked && linked !== "expired") return decorateReservation(linked);
 
-  if (!reservation) throw reservationNotFound();
+  const owned = principal
+    ? await ticketingModel.findReservation(
+        reservationId,
+        await ownedBy(principal.id),
+      )
+    : null;
+  if (owned) return decorateReservation(owned);
 
-  return decorateReservation(reservation);
+  throw linked === "expired" ? reservationLinkExpired() : reservationNotFound();
 }
 
 /**
@@ -448,9 +464,9 @@ export async function claimReservation(
   accessToken: string,
   userId: string,
 ) {
-  if (!isReservationAccessToken(reservationId, accessToken)) {
-    throw reservationNotFound();
-  }
+  const linked = await openReservationLink(reservationId, accessToken);
+  if (!linked) throw reservationNotFound();
+  if (linked === "expired") throw reservationLinkExpired();
 
   await ticketingModel.claimReservation(reservationId, userId);
   const reservation = await ticketingModel.findReservation(reservationId);
@@ -465,6 +481,42 @@ export async function claimReservation(
   }
 
   return decorateReservation(reservation);
+}
+
+/**
+ * Kills every link to a reservation by raising its access version, and
+ * returns the buyer's email so the caller can send the fresh link there.
+ * A live link, the signed-in owner or an admin may reset. The new link is
+ * never returned, so someone holding a leaked link gains nothing by resetting.
+ */
+export async function rotateReservationAccess(
+  reservationId: string,
+  accessToken: string | undefined,
+  principal?: Principal,
+): Promise<string> {
+  const linked = accessToken
+    ? await openReservationLink(reservationId, accessToken)
+    : null;
+  const allowed =
+    linked && linked !== "expired"
+      ? linked
+      : principal?.role === "ADMIN"
+        ? await ticketingModel.findReservation(reservationId)
+        : principal
+          ? await ticketingModel.findReservation(
+              reservationId,
+              await ownedBy(principal.id),
+            )
+          : null;
+
+  if (!allowed) {
+    throw linked === "expired"
+      ? reservationLinkExpired()
+      : reservationNotFound();
+  }
+
+  await ticketingModel.bumpReservationAccessVersion(allowed.id);
+  return allowed.buyerEmail;
 }
 
 export async function listReservations(userId: string) {
@@ -721,6 +773,7 @@ async function replayReservation<
   Reservation extends {
     id: string;
     eventId: string;
+    accessVersion: number;
     tickets: Array<{ id: string; publicId: string; ticketTypeId: string }>;
   },
 >(reservation: Reservation, eventId: string, items: ReservationItem[]) {
@@ -750,15 +803,20 @@ async function replayReservation<
 function decorateReservation<
   Reservation extends {
     id: string;
+    accessVersion: number;
     tickets: Array<{ publicId: string }>;
     confirmationSentAt?: Date | null;
   },
 >(reservation: Reservation) {
-  const { confirmationSentAt: _sent, ...publicReservation } = reservation;
+  const {
+    confirmationSentAt: _sent,
+    accessVersion: _version,
+    ...publicReservation
+  } = reservation;
   return {
     ...publicReservation,
     tickets: reservation.tickets.map((ticket) => decorateTicket(ticket)),
-    accessToken: createReservationAccessToken(reservation.id),
+    accessToken: createReservationAccessToken(reservation),
   };
 }
 
@@ -778,6 +836,14 @@ function reservationNotFound(): AppError {
     404,
     "RESERVATION_NOT_FOUND",
     "Reservation was not found",
+  );
+}
+
+function reservationLinkExpired(): AppError {
+  return new AppError(
+    410,
+    "RESERVATION_LINK_EXPIRED",
+    "This reservation link has expired. Request a new one with your email.",
   );
 }
 

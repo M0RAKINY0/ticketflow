@@ -65,7 +65,7 @@ describe("queued ticket recovery", () => {
     const url = new URL(links[0].url);
     expect(url.pathname).toContain(expected.id);
     expect(
-      isReservationAccessToken(expected.id, url.searchParams.get("token")!),
+      isReservationAccessToken(expected, url.searchParams.get("token")!),
     ).toBe(true);
     sender.sendRecovery.mockClear();
     await producer.enqueue({

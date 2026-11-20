@@ -120,9 +120,11 @@ model Reservation {
   buyerName      String
   idempotencyKey String
   status         ReservationStatus @default(CONFIRMED)
+  /// Guest links sign this. Raising it kills every older link.
+  accessVersion  Int               @default(1)
   createdAt      DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
-  user           User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
   tickets        Ticket[]
 

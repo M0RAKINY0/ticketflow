@@ -35,6 +35,7 @@ const config: Env = {
   GOOGLE_CLIENT_ID: "google-client-id",
   GOOGLE_CLIENT_SECRET: "google-client-secret",
   TICKET_QR_SECRET: "b".repeat(32),
+  RESERVATION_ACCESS_SECRET: "c".repeat(32),
   SENTRY_DSN: "https://public-key@o123456.ingest.sentry.io/123456",
 };
 

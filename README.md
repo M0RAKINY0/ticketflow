@@ -167,6 +167,7 @@ All routes below use the `/api/v1` prefix.
 | `DELETE` | `/events/:eventId/ticket-types/:ticketTypeId` | Owner or admin        | Deletes a ticket type from a draft.                                                                                                       |
 | `POST`   | `/events/:eventId/reservations`               | Guest or user         | Reserves up to 10 tickets for a published event.                                                                                          |
 | `GET`    | `/reservations/:reservationId`                | Access token or owner | Returns one reservation with its tickets and QR codes.                                                                                    |
+| `POST`   | `/reservations/:reservationId/reset-link`     | Link, owner or admin  | Kills every existing link and emails a fresh one to the buyer.                                                                            |
 | `POST`   | `/reservations/:reservationId/claim`          | User                  | Saves a guest reservation to the caller's account.                                                                                        |
 | `GET`    | `/me/reservations`                            | Authenticated         | Lists the caller's reservations.                                                                                                          |
 | `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                                                                               |
@@ -188,7 +189,11 @@ Reservation requests require an `Idempotency-Key` header and a JSON body:
 
 The first successful request returns `201`; replaying the same buyer email, key, event, and items returns the original reservation with `200` and does not increment inventory. Reusing the key for a different request returns `409`. Asking for more tickets than a ticket type has left returns `409 NOT_ENOUGH_TICKETS`, and nothing is reserved.
 
-Every reservation response carries an `accessToken`. A guest opens their reservation with `GET /reservations/:reservationId?token=<accessToken>`. The token is an HMAC of the reservation ID under `TICKET_QR_SECRET`, so rotating that secret invalidates emailed links and printed QR codes together. Each ticket email links to `<first FRONTEND_ORIGINS entry>/reservations/:reservationId?token=...`, so list the public site origin first.
+Every reservation response carries an `accessToken`. A guest opens their reservation with `GET /reservations/:reservationId?token=<accessToken>`. The token is an HMAC of the reservation ID and its `accessVersion` under `RESERVATION_ACCESS_SECRET`. That secret must differ from `TICKET_QR_SECRET`, so rotating it kills every emailed link and leaves QR codes alone. Each ticket email links to `<first FRONTEND_ORIGINS entry>/reservations/:reservationId?token=...`, so list the public site origin first.
+
+Links stop working 30 days after the event ends. An expired link returns `410 RESERVATION_LINK_EXPIRED`, and recovery emails skip those reservations. Signed-in owners keep access after expiry.
+
+`POST /reservations/:reservationId/reset-link` raises the reservation's `accessVersion`, which kills every older link, and emails fresh links to the buyer through the recovery email. The caller sends a live `{ "token": "<accessToken>" }`, or calls as the signed-in owner or an admin. The response never contains the new link, so someone holding a leaked link gains nothing by resetting it. The route allows 5 requests per IP per 15 minutes, and the email shares the recovery throttle. A throttled reset still kills the old links. Resetting a link does not reissue tickets, so a screenshot of a QR code still scans.
 
 A signed-in user sees reservations made under their account. Once their email is verified, they also see guest reservations made with that email.
 
