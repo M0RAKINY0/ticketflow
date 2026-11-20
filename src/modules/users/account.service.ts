@@ -2,6 +2,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { auth } from "../../infrastructure/auth.js";
 import { prisma } from "../../infrastructure/prisma.js";
 import { AppError } from "../../shared/errors.js";
+import { usersModel } from "./users.model.js";
 
 /** How recently a password-less (Google) account must have signed in to delete itself. */
 export const FRESH_SIGN_IN_MS = 10 * 60 * 1000;
@@ -26,10 +27,7 @@ export async function deleteAccount(
   password: string | undefined,
   now = new Date(),
 ): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    include: { accounts: { select: { providerId: true, password: true } } },
-  });
+  const user = await usersModel.findWithSignInMethods(session.userId);
   if (!user || user.deletedAt) {
     throw new AppError(404, "USER_NOT_FOUND", "User not found");
   }
@@ -63,6 +61,8 @@ export async function deleteAccount(
       WHERE "userId" = ${user.id}::uuid
          OR ("userId" IS NULL AND ${user.emailVerified} AND "buyerEmail" = ${user.email.toLowerCase()})
     `;
+    await tx.organizerProfile.deleteMany({ where: { userId: user.id } });
+    await tx.eventStaff.deleteMany({ where: { userId: user.id } });
     await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.user.update({
@@ -139,16 +139,7 @@ async function assertDeletable(
   user: { id: string; email: string; emailVerified: boolean; role: string },
   now: Date,
 ) {
-  const live = await prisma.event.findMany({
-    where: {
-      organizerId: user.id,
-      status: "PUBLISHED",
-      endsAt: { gt: now },
-      reservations: { some: { status: "CONFIRMED" } },
-    },
-    select: { id: true, title: true },
-    orderBy: { startsAt: "asc" },
-  });
+  const live = await usersModel.liveHostedEvents(user.id, now);
   if (live.length) {
     throw new AppError(
       409,
@@ -166,23 +157,7 @@ async function assertDeletable(
         ],
       }
     : { userId: user.id };
-  const upcoming = await prisma.event.findMany({
-    where: {
-      status: "PUBLISHED",
-      endsAt: { gt: now },
-      reservations: {
-        some: {
-          AND: [
-            owned,
-            { status: "CONFIRMED" },
-            { tickets: { some: { status: "READY" } } },
-          ],
-        },
-      },
-    },
-    select: { id: true, title: true },
-    orderBy: { startsAt: "asc" },
-  });
+  const upcoming = await usersModel.upcomingTicketEvents(owned, now);
   if (upcoming.length) {
     throw new AppError(
       409,
@@ -192,16 +167,11 @@ async function assertDeletable(
     );
   }
 
-  if (user.role === "ADMIN") {
-    const admins = await prisma.user.count({
-      where: { role: "ADMIN", deletedAt: null },
-    });
-    if (admins <= 1) {
-      throw new AppError(
-        409,
-        "LAST_ADMIN",
-        "Make someone else an admin before deleting the last admin account",
-      );
-    }
+  if (user.role === "ADMIN" && (await usersModel.countActiveAdmins()) <= 1) {
+    throw new AppError(
+      409,
+      "LAST_ADMIN",
+      "Make someone else an admin before deleting the last admin account",
+    );
   }
 }

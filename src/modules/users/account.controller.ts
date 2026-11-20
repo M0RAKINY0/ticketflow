@@ -1,18 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { fromNodeHeaders } from "better-auth/node";
-import { z, ZodError } from "zod";
+import { ZodError } from "zod";
 
 import { auth } from "../../infrastructure/auth.js";
 import { AppError } from "../../shared/errors.js";
 import { success } from "../../shared/response.js";
 import { addPassword, deleteAccount } from "./account.service.js";
-
-const deleteAccountSchema = z.object({
-  password: z.string().min(1).max(256).optional(),
-});
-const addPasswordSchema = z.object({
-  newPassword: z.string().min(1).max(256),
-});
+import { addPasswordSchema, deleteAccountSchema } from "./users.schema.js";
 
 function validationError(error: ZodError): AppError {
   return new AppError(

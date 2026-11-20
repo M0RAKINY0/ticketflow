@@ -1,49 +1,20 @@
 import type { Prisma } from "../../generated/prisma/client.js";
-import { prisma } from "../../infrastructure/prisma.js";
+import { ticketingModel } from "./ticketing.model.js";
 import { ownedBy } from "./ticketing.service.js";
 
 type Page = { page: number; pageSize: number };
 
-const historyEventSelect = {
-  id: true,
-  slug: true,
-  title: true,
-  status: true,
-  startsAt: true,
-  endsAt: true,
-  timezone: true,
-  venue: true,
-  city: true,
-  countryCode: true,
-  category: true,
-  coverImageUrl: true,
-  currency: true,
-} satisfies Prisma.EventSelect;
-
 /** Events the user hosted that have ended, newest first, cancelled ones included. */
 export async function listHostedHistory(
   userId: string,
-  { page, pageSize }: Page,
+  page: Page,
   now = new Date(),
 ) {
-  const where: Prisma.EventWhereInput = {
-    organizerId: userId,
-    status: { not: "DRAFT" },
-    endsAt: { lt: now },
-  };
-  const [events, total] = await prisma.$transaction([
-    prisma.event.findMany({
-      where,
-      select: {
-        ...historyEventSelect,
-        ticketTypes: { select: { reservedCount: true } },
-      },
-      orderBy: [{ startsAt: "desc" }, { id: "asc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.event.count({ where }),
-  ]);
+  const { events, total } = await ticketingModel.hostedHistory(
+    userId,
+    now,
+    page,
+  );
 
   return {
     items: events.map(({ ticketTypes, ...event }) => ({
@@ -54,8 +25,7 @@ export async function listHostedHistory(
       ),
     })),
     total,
-    page,
-    pageSize,
+    ...page,
   };
 }
 
@@ -66,7 +36,7 @@ export async function listHostedHistory(
  */
 export async function listAttendedHistory(
   userId: string,
-  { page, pageSize }: Page,
+  page: Page,
   now = new Date(),
 ) {
   const owned: Prisma.ReservationWhereInput = {
@@ -76,27 +46,11 @@ export async function listAttendedHistory(
       { tickets: { some: { status: { not: "VOID" } } } },
     ],
   };
-  const where: Prisma.EventWhereInput = {
-    status: "PUBLISHED",
-    endsAt: { lt: now },
-    reservations: { some: owned },
-  };
-  const [events, total] = await prisma.$transaction([
-    prisma.event.findMany({
-      where,
-      select: {
-        ...historyEventSelect,
-        reservations: {
-          where: owned,
-          select: { id: true, tickets: { select: { status: true } } },
-        },
-      },
-      orderBy: [{ startsAt: "desc" }, { id: "asc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.event.count({ where }),
-  ]);
+  const { events, total } = await ticketingModel.attendedHistory(
+    owned,
+    now,
+    page,
+  );
 
   return {
     items: events.map(({ reservations, ...event }) => {
@@ -109,7 +63,6 @@ export async function listAttendedHistory(
       };
     }),
     total,
-    page,
-    pageSize,
+    ...page,
   };
 }

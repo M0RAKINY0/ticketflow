@@ -1,14 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
-import { z, ZodError } from "zod";
+import { ZodError } from "zod";
 
 import { AppError } from "../../shared/errors.js";
 import { success } from "../../shared/response.js";
 import { listAttendedHistory, listHostedHistory } from "./history.service.js";
-
-const pagination = z.object({
-  page: z.coerce.number().int().min(1).max(100000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-});
+import { historyQuerySchema } from "./ticketing.schema.js";
 
 function historyController(
   list: (
@@ -21,7 +17,9 @@ function historyController(
       res
         .status(200)
         .json(
-          success(await list(req.principal!.id, pagination.parse(req.query))),
+          success(
+            await list(req.principal!.id, historyQuerySchema.parse(req.query)),
+          ),
         );
     } catch (error) {
       next(
