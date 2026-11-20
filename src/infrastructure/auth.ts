@@ -55,6 +55,15 @@ export function createAuth(
         });
       },
     },
+    emailVerification: {
+      // Runs once a code has proved the user owns `user.email`: at signup
+      // verification, and with the old address when they change email.
+      // Guest orders bought with that address move into the account, so
+      // they stay there after the email changes.
+      async beforeEmailVerification(user) {
+        await claimGuestReservations(user.id, user.email);
+      },
+    },
     secondaryStorage:
       options.secondaryStorage ??
       (env.NODE_ENV === "test" ? undefined : redisAuthStorage),
@@ -74,6 +83,16 @@ export function createAuth(
         "/sign-out": { window: 60, max: 20 },
         "/email-otp/send-verification-otp": { window: 15 * 60, max: 3 },
         "/email-otp/verify-email": { window: 15 * 60, max: 5 },
+        "/email-otp/request-email-change": { window: 15 * 60, max: 3 },
+        "/email-otp/change-email": { window: 15 * 60, max: 5 },
+        "/change-password": { window: 15 * 60, max: 5 },
+        "/list-sessions": { window: 60, max: 60 },
+        "/revoke-session": { window: 60, max: 20 },
+        "/revoke-sessions": { window: 60, max: 20 },
+        "/revoke-other-sessions": { window: 60, max: 20 },
+        "/list-accounts": { window: 60, max: 60 },
+        "/link-social": { window: 60, max: 10 },
+        "/unlink-account": { window: 60, max: 10 },
       },
     },
     socialProviders: {
@@ -119,8 +138,12 @@ export function createAuth(
         expiresIn: 300,
         allowedAttempts: 3,
         storeOTP: "hashed",
+        // Changing email takes a code from the current address, then one
+        // from the new address, so a stolen session alone can't move the
+        // account to an attacker's inbox.
+        changeEmail: { enabled: true, verifyCurrentEmail: true },
         async sendVerificationOTP({ email, otp, type }) {
-          if (type !== "email-verification") {
+          if (type !== "email-verification" && type !== "change-email") {
             throw new Error("Unsupported OTP type");
           }
           await emailLimiter(email);
@@ -140,6 +163,14 @@ export function createAuth(
         },
       }),
     ],
+  });
+}
+
+/** Moves unowned guest orders bought with `email` into the account. */
+async function claimGuestReservations(userId: string, email: string) {
+  await prisma.reservation.updateMany({
+    where: { userId: null, buyerEmail: email.toLowerCase() },
+    data: { userId },
   });
 }
 

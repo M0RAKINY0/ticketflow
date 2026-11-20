@@ -20,7 +20,7 @@ describe("verification email", () => {
     expect(messages[0]).toMatchObject({
       from: "Ventra <auth@example.com>",
       to: "person@example.com",
-      subject: "Verify your Ventra email",
+      subject: "Your Ventra verification code",
     });
     expect(JSON.stringify(messages[0])).toContain("123456");
 

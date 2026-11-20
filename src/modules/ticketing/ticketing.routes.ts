@@ -40,6 +40,10 @@ import {
   resetReservationLinkController,
 } from "./recovery.controller.js";
 import { createRateLimiter } from "../../middleware/security.middleware.js";
+import {
+  attendedHistoryController,
+  hostedHistoryController,
+} from "./history.controller.js";
 
 export const ticketingRouter = Router();
 
@@ -139,6 +143,18 @@ ticketingRouter.get(
 );
 
 ticketingRouter.get("/me/tickets", ...authenticated, listTicketsController);
+
+ticketingRouter.get(
+  "/me/history/hosted",
+  ...authenticated,
+  hostedHistoryController,
+);
+
+ticketingRouter.get(
+  "/me/history/attended",
+  ...authenticated,
+  attendedHistoryController,
+);
 
 ticketingRouter.get(
   "/me/tickets/:ticketId/qr",

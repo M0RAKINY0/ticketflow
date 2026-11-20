@@ -26,6 +26,7 @@ export const usersModel = {
     pageSize: number;
   }) {
     const where: Prisma.UserWhereInput = {
+      deletedAt: null,
       ...(input.role ? { role: input.role } : {}),
       ...(input.query
         ? {

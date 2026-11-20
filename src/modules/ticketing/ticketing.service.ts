@@ -760,7 +760,9 @@ async function resolveBuyer(
  * Reservations a user can see: their own, plus guest reservations made with
  * their email once they have proved they control that address.
  */
-async function ownedBy(userId: string): Promise<Prisma.ReservationWhereInput> {
+export async function ownedBy(
+  userId: string,
+): Promise<Prisma.ReservationWhereInput> {
   const user = await ticketingModel.findBuyer(userId);
   if (!user?.emailVerified) return { userId };
 
