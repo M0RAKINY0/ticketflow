@@ -152,7 +152,9 @@ for (const [method, path, tag, secured] of operations) {
     parameters,
     security: secured ? [{ sessionCookie: [] }, { bearerAuth: [] }] : [],
     requestBody:
-      ["post", "patch", "delete"].includes(method) && requestSchema
+      (["post", "patch"].includes(method) ||
+        requestSchema === "DeleteAccountInput") &&
+      requestSchema
         ? {
             required: method !== "delete",
             content: {
