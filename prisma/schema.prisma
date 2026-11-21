@@ -64,6 +64,9 @@ model User {
   events        Event[]       @relation("EventOrganizer")
   reservations  Reservation[]
   checkIns      CheckIn[]     @relation("CheckInOperator")
+  organizerProfile OrganizerProfile?
+  staffRoles    EventStaff[]  @relation("StaffMember")
+  staffAdded    EventStaff[]  @relation("StaffAddedBy")
 
   @@index([role])
 }
@@ -90,6 +93,7 @@ model Event {
   ticketTypes   TicketType[]
   reservations  Reservation[]
   checkIns      CheckIn[]
+  staff         EventStaff[]
 
   @@index([organizerId])
   @@index([status, startsAt])
@@ -169,6 +173,35 @@ model CheckIn {
 
   @@index([eventId, checkedInAt])
   @@index([checkedInById])
+}
+
+/// How an organizer appears on their event pages. Public.
+model OrganizerProfile {
+  userId          String   @id @db.Uuid
+  displayName     String
+  bio             String?
+  logoUrl         String?
+  instagramHandle String?
+  xHandle         String?
+  supportEmail    String?
+  supportPhone    String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Door helpers. They can scan tickets and see check-ins for one event, nothing else.
+model EventStaff {
+  eventId   String   @db.Uuid
+  userId    String   @db.Uuid
+  addedById String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation("StaffMember", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy   User     @relation("StaffAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+
+  @@id([eventId, userId])
+  @@index([userId])
 }
 
 model OutboxEvent {

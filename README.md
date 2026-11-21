@@ -170,7 +170,15 @@ Ventra adds these under `/api/v1`, all signed-in only:
 - `GET /me/history/hosted` lists ended events the caller hosted, cancelled ones included, with `ticketsSold`. `GET /me/history/attended` lists ended events the caller held valid tickets for, with `ticketCount`, `reservationIds` and `checkedIn`. Both accept `page` and `pageSize` (at most 100).
 - `DELETE /me` deletes the account. Send `{ "password" }` when the account has one. A Google-only account must have signed in within the last 10 minutes, otherwise it gets `403 SIGN_IN_AGAIN`.
 
-Deleting refuses with `409` while the account hosts an upcoming published event with sold tickets (`ACCOUNT_HOSTS_LIVE_EVENTS`), holds a ticket to an upcoming event (`ACCOUNT_HAS_UPCOMING_TICKETS`), or is the last admin (`LAST_ADMIN`). The first two carry the blocking events in `details.events`. Otherwise it signs out every session, deletes drafts, cancels the account's remaining upcoming events (none have sales), and scrubs the user's name, email, phone and photo. It also removes passwords and Google links, and scrubs the buyer name and email on the account's orders. The user row, past events and orders stay, labelled "Deleted user", so organizers and buyers keep their records. The Nigeria Data Protection Act 2023 allows keeping what a contract or legal record needs. `DELETE /me` and `POST /me/password` need the browser session cookie, not an API token. A 15-minute API token issued before deletion stays valid until it expires.
+Deleting refuses with `409` while the account hosts an upcoming published event with sold tickets (`ACCOUNT_HOSTS_LIVE_EVENTS`), holds a ticket to an upcoming event (`ACCOUNT_HAS_UPCOMING_TICKETS`), or is the last admin (`LAST_ADMIN`). The first two carry the blocking events in `details.events`. Otherwise it signs out every session, deletes drafts, cancels the account's remaining upcoming events (none have sales), and scrubs the user's name, email, phone and photo. It also removes passwords and Google links, and scrubs the buyer name and email on the account's orders. The user row, past events and orders stay, labelled "Deleted user", so organizers and buyers keep their records. The Nigeria Data Protection Act 2023 allows keeping what a contract or legal record needs. `DELETE /me` and `POST /me/password` need the browser session cookie, not an API token. A 15-minute API token issued before deletion stays valid until it expires. Deleting also removes the organizer profile and every door-staff role.
+
+### Organizer profile
+
+`GET /me/organizer-profile` returns the caller's profile, or `null`. `PUT /me/organizer-profile` creates or replaces it; fields left out are cleared. It takes `displayName` (required, up to 100 characters), `bio` (up to 1,000), an HTTPS `logoUrl`, `instagramHandle` and `xHandle` (a leading `@` is removed), `supportEmail` and `supportPhone`. Every event response carries it under `organizer.organizerProfile`, so the support email and phone are public.
+
+### Door staff
+
+An organizer, or an admin, can add door staff to an event by the email of a verified Ventra account. Staff can scan tickets and list check-ins for that event and do nothing else. They can't edit the event, see the attendee list or sales, or add other staff. `GET /me/staff-events` lists the published events that haven't ended where the caller is staff, so a check-in screen can offer them. An event holds at most 50 staff, and a cancelled event takes no new staff. Adding by email reveals whether that address has a verified account, so `POST /events/:eventId/staff` allows 20 requests per IP per 15 minutes.
 
 ## Ticketing API
 
@@ -196,8 +204,12 @@ All routes below use the `/api/v1` prefix.
 | `GET`    | `/me/tickets`                                 | Authenticated         | Lists the caller's tickets.                                                                                                               |
 | `GET`    | `/me/tickets/:ticketId`                       | Ticket owner          | Returns one ticket.                                                                                                                       |
 | `GET`    | `/me/tickets/:ticketId/qr`                    | Ticket owner          | Returns the stored QR data URL and signed payload.                                                                                        |
-| `POST`   | `/events/:eventId/check-ins`                  | Owner or admin        | Validates a signed QR payload and consumes the ticket once.                                                                               |
-| `GET`    | `/events/:eventId/check-ins`                  | Owner or admin        | Lists event check-ins.                                                                                                                    |
+| `POST`   | `/events/:eventId/check-ins`                  | Owner, admin or staff | Validates a signed QR payload and consumes the ticket once.                                                                               |
+| `GET`    | `/events/:eventId/check-ins`                  | Owner, admin or staff | Lists event check-ins.                                                                                                                    |
+| `GET`    | `/events/:eventId/staff`                      | Owner or admin        | Lists door staff.                                                                                                                         |
+| `POST`   | `/events/:eventId/staff`                      | Owner or admin        | Adds door staff by account email.                                                                                                         |
+| `DELETE` | `/events/:eventId/staff/:userId`              | Owner or admin        | Removes door staff.                                                                                                                       |
+| `GET`    | `/me/staff-events`                            | Authenticated         | Lists events the caller can scan for as staff.                                                                                            |
 
 Reservation requests require an `Idempotency-Key` header and a JSON body:
 

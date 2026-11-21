@@ -1,8 +1,15 @@
 import { OutboxEventType, type Prisma } from "../../generated/prisma/client.js";
+import { organizerProfileSelect } from "../users/users.model.js";
 import { prisma } from "../../infrastructure/prisma.js";
 
 export const ticketingEventInclude = {
-  organizer: { select: { id: true, name: true } },
+  organizer: {
+    select: {
+      id: true,
+      name: true,
+      organizerProfile: { select: organizerProfileSelect },
+    },
+  },
   ticketTypes: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.EventInclude;
 
@@ -84,6 +91,66 @@ export const ticketingModel = {
     return prisma.event.findUnique({
       where: { id: eventId },
       select: { organizerId: true },
+    });
+  },
+
+  findEventForStaff(eventId: string) {
+    return prisma.event.findUnique({
+      where: { id: eventId },
+      select: { organizerId: true, status: true },
+    });
+  },
+
+  isEventStaff(eventId: string, userId: string) {
+    return prisma.eventStaff
+      .count({ where: { eventId, userId } })
+      .then((count) => count > 0);
+  },
+
+  listEventStaff(eventId: string) {
+    return prisma.eventStaff.findMany({
+      where: { eventId },
+      select: {
+        createdAt: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  },
+
+  countEventStaff(eventId: string) {
+    return prisma.eventStaff.count({ where: { eventId } });
+  },
+
+  /** An active, verified account that could help at the door. */
+  findStaffCandidate(email: string) {
+    return prisma.user.findFirst({
+      where: { email, deletedAt: null, emailVerified: true },
+      select: { id: true, name: true, email: true },
+    });
+  },
+
+  addEventStaff(eventId: string, userId: string, addedById: string) {
+    return prisma.eventStaff.create({
+      data: { eventId, userId, addedById },
+      select: { createdAt: true },
+    });
+  },
+
+  removeEventStaff(eventId: string, userId: string) {
+    return prisma.eventStaff.deleteMany({ where: { eventId, userId } });
+  },
+
+  /** Published events the user helps at that haven't ended. */
+  staffEvents(userId: string, now: Date) {
+    return prisma.event.findMany({
+      where: {
+        status: "PUBLISHED",
+        endsAt: { gte: now },
+        staff: { some: { userId } },
+      },
+      select: historyEventSelect,
+      orderBy: [{ startsAt: "asc" }, { id: "asc" }],
     });
   },
 

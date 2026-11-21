@@ -673,7 +673,11 @@ async function requireCheckInAccess(eventId: string, operator: Principal) {
     throw new AppError(404, "EVENT_NOT_FOUND", "Event was not found");
   }
 
-  if (!canManageEvent(operator, event.organizerId)) {
+  // Door staff added by the organizer can scan too.
+  if (
+    !canManageEvent(operator, event.organizerId) &&
+    !(await ticketingModel.isEventStaff(eventId, operator.id))
+  ) {
     throw new AppError(
       403,
       "FORBIDDEN",

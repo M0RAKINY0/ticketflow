@@ -59,6 +59,8 @@ export async function deleteAccount(
       WHERE "userId" = ${user.id}::uuid
          OR ("userId" IS NULL AND ${user.emailVerified} AND "buyerEmail" = ${user.email.toLowerCase()})
     `;
+    await tx.organizerProfile.deleteMany({ where: { userId: user.id } });
+    await tx.eventStaff.deleteMany({ where: { userId: user.id } });
     await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.user.update({

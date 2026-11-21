@@ -204,3 +204,12 @@ export const historyQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+export const staffParamsSchema = z.object({
+  eventId: z.uuid(),
+  userId: z.uuid(),
+});
+
+export const addStaffSchema = z.object({
+  email: z.string().trim().toLowerCase().max(254).pipe(z.email()),
+});

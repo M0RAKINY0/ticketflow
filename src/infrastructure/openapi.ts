@@ -9,6 +9,12 @@ const operations = [
   ["post", "/api/v1/me/password", "Users", true],
   ["get", "/api/v1/me/history/hosted", "Users", true],
   ["get", "/api/v1/me/history/attended", "Users", true],
+  ["get", "/api/v1/me/organizer-profile", "Users", true],
+  ["put", "/api/v1/me/organizer-profile", "Users", true],
+  ["get", "/api/v1/me/staff-events", "Check-ins", true],
+  ["get", "/api/v1/events/{eventId}/staff", "Check-ins", true],
+  ["post", "/api/v1/events/{eventId}/staff", "Check-ins", true],
+  ["delete", "/api/v1/events/{eventId}/staff/{userId}", "Check-ins", true],
   ["get", "/api/v1/users", "Users", true],
   ["patch", "/api/v1/users/{userId}/role", "Users", true],
   ["get", "/api/v1/events", "Events", false],
@@ -54,6 +60,18 @@ const operations = [
 ] as const;
 
 const accountDescriptions: Record<string, string> = {
+  "get /api/v1/me/organizer-profile":
+    "The caller's organizer profile, or null before they save one.",
+  "put /api/v1/me/organizer-profile":
+    "Creates or replaces the caller's organizer profile. Fields left out are cleared. Event responses show it under organizer.organizerProfile, including the support email and phone.",
+  "get /api/v1/me/staff-events":
+    "Published events that haven't ended where the caller is door staff.",
+  "get /api/v1/events/{eventId}/staff":
+    "Owner or admin. Lists door staff with name, email and when they were added.",
+  "post /api/v1/events/{eventId}/staff":
+    "Owner or admin. Adds door staff by the email of a verified Ventra account. Staff can scan tickets and list check-ins for this event, nothing else. 404 STAFF_USER_NOT_FOUND, 409 STAFF_IS_ORGANIZER, ALREADY_STAFF, STAFF_LIMIT (50) or EVENT_LOCKED for cancelled events. 20 requests per IP per 15 minutes.",
+  "delete /api/v1/events/{eventId}/staff/{userId}":
+    "Owner or admin. Removes door staff. Returns 204.",
   "delete /api/v1/me":
     "Deletes the signed-in account. Needs the browser session. Send `password` if the account has one; a Google-only account must have signed in within the last 10 minutes. Returns 409 while the account hosts an upcoming event with sales (ACCOUNT_HOSTS_LIVE_EVENTS), holds tickets to an upcoming event (ACCOUNT_HAS_UPCOMING_TICKETS), or is the last admin (LAST_ADMIN). Personal details are scrubbed and every session is signed out. Past events and orders stay, labelled 'Deleted user'. Returns 204.",
   "post /api/v1/me/password":
@@ -82,27 +100,31 @@ for (const [method, path, tag, secured] of operations) {
         : { type: "string", format: "uuid" },
   }));
   ventraPaths[path] ??= {};
-  const requestSchema = path.endsWith("/me/password")
-    ? "AddPasswordInput"
-    : path === "/api/v1/me" && method === "delete"
-      ? "DeleteAccountInput"
-      : path.endsWith("/recover")
-        ? "TicketRecoveryInput"
-        : path.endsWith("/role")
-          ? "RoleUpdate"
-          : path.endsWith("/claim")
-            ? "ReservationClaimInput"
-            : path.endsWith("/reset-link")
-              ? "ReservationLinkResetInput"
-              : path.endsWith("/reservations")
-                ? "ReservationInput"
-                : path.endsWith("/check-ins")
-                  ? "CheckInInput"
-                  : path.includes("ticket-types")
-                    ? "TicketTypeInput"
-                    : path.includes("/events")
-                      ? "EventInput"
-                      : undefined;
+  const requestSchema = path.endsWith("/organizer-profile")
+    ? "OrganizerProfileInput"
+    : path.endsWith("/staff")
+      ? "StaffInput"
+      : path.endsWith("/me/password")
+        ? "AddPasswordInput"
+        : path === "/api/v1/me" && method === "delete"
+          ? "DeleteAccountInput"
+          : path.endsWith("/recover")
+            ? "TicketRecoveryInput"
+            : path.endsWith("/role")
+              ? "RoleUpdate"
+              : path.endsWith("/claim")
+                ? "ReservationClaimInput"
+                : path.endsWith("/reset-link")
+                  ? "ReservationLinkResetInput"
+                  : path.endsWith("/reservations")
+                    ? "ReservationInput"
+                    : path.endsWith("/check-ins")
+                      ? "CheckInInput"
+                      : path.includes("ticket-types")
+                        ? "TicketTypeInput"
+                        : path.includes("/events")
+                          ? "EventInput"
+                          : undefined;
   if (path.endsWith("/reservations") && method === "post") {
     parameters.push({
       name: "Idempotency-Key",
@@ -152,7 +174,7 @@ for (const [method, path, tag, secured] of operations) {
     parameters,
     security: secured ? [{ sessionCookie: [] }, { bearerAuth: [] }] : [],
     requestBody:
-      (["post", "patch"].includes(method) ||
+      (["post", "patch", "put"].includes(method) ||
         requestSchema === "DeleteAccountInput") &&
       requestSchema
         ? {
@@ -341,6 +363,34 @@ export async function createOpenAPIDocument(
                 "Required when the account has a password. Google-only accounts leave it out.",
             },
           },
+        },
+        OrganizerProfileInput: {
+          type: "object",
+          required: ["displayName"],
+          properties: {
+            displayName: { type: "string", maxLength: 100 },
+            bio: { type: ["string", "null"], maxLength: 1000 },
+            logoUrl: {
+              type: ["string", "null"],
+              format: "uri",
+              description: "HTTPS only",
+            },
+            instagramHandle: {
+              type: ["string", "null"],
+              description: "A leading @ is removed",
+            },
+            xHandle: {
+              type: ["string", "null"],
+              description: "A leading @ is removed",
+            },
+            supportEmail: { type: ["string", "null"], format: "email" },
+            supportPhone: { type: ["string", "null"] },
+          },
+        },
+        StaffInput: {
+          type: "object",
+          required: ["email"],
+          properties: { email: { type: "string", format: "email" } },
         },
         AddPasswordInput: {
           type: "object",
