@@ -7,8 +7,15 @@ import {
   userIdSchema,
   roleSchema,
   userListQuerySchema,
+  organizerProfileSchema,
 } from "./users.schema.js";
-import { assignRole, getCurrentUser, listUsers } from "./users.service.js";
+import {
+  assignRole,
+  getCurrentUser,
+  getOrganizerProfile,
+  listUsers,
+  saveOrganizerProfile,
+} from "./users.service.js";
 
 function validationError(error: ZodError): AppError {
   return new AppError(
@@ -57,6 +64,33 @@ export async function assignRoleController(
     const user = await assignRole(userId, role);
 
     response.status(200).json(success({ user }));
+  } catch (error) {
+    next(error instanceof ZodError ? validationError(error) : error);
+  }
+}
+
+export async function getOrganizerProfileController(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const profile = await getOrganizerProfile(request.principal!.id);
+    response.status(200).json(success({ profile }));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function saveOrganizerProfileController(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const input = organizerProfileSchema.parse(request.body);
+    const profile = await saveOrganizerProfile(request.principal!.id, input);
+    response.status(200).json(success({ profile }));
   } catch (error) {
     next(error instanceof ZodError ? validationError(error) : error);
   }

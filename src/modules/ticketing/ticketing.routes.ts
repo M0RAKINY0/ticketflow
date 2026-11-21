@@ -44,6 +44,12 @@ import {
   attendedHistoryController,
   hostedHistoryController,
 } from "./history.controller.js";
+import {
+  addEventStaffController,
+  listEventStaffController,
+  listStaffEventsController,
+  removeEventStaffController,
+} from "./staff.controller.js";
 
 export const ticketingRouter = Router();
 
@@ -154,6 +160,33 @@ ticketingRouter.get(
   "/me/history/attended",
   ...authenticated,
   attendedHistoryController,
+);
+
+ticketingRouter.get(
+  "/me/staff-events",
+  ...authenticated,
+  listStaffEventsController,
+);
+
+ticketingRouter.get(
+  "/events/:eventId/staff",
+  ...authenticated,
+  listEventStaffController,
+);
+
+// Adding by email can reveal whether an address has an account, so it gets
+// a tighter limit.
+ticketingRouter.post(
+  "/events/:eventId/staff",
+  createRateLimiter(15 * 60 * 1000, 20),
+  ...authenticated,
+  addEventStaffController,
+);
+
+ticketingRouter.delete(
+  "/events/:eventId/staff/:userId",
+  ...authenticated,
+  removeEventStaffController,
 );
 
 ticketingRouter.get(

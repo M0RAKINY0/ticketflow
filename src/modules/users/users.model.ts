@@ -10,6 +10,17 @@ const publicUserSelect = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
+/** The public part of an organizer profile, shown on event pages. */
+export const organizerProfileSelect = {
+  displayName: true,
+  bio: true,
+  logoUrl: true,
+  instagramHandle: true,
+  xHandle: true,
+  supportEmail: true,
+  supportPhone: true,
+} satisfies Prisma.OrganizerProfileSelect;
+
 /** The root client, or a transaction client when called inside one. */
 type Db = Prisma.TransactionClient;
 
@@ -100,5 +111,24 @@ export const usersModel = {
     ]);
 
     return { items, total };
+  },
+
+  findOrganizerProfile(userId: string) {
+    return prisma.organizerProfile.findUnique({
+      where: { userId },
+      select: organizerProfileSelect,
+    });
+  },
+
+  saveOrganizerProfile(
+    userId: string,
+    data: Omit<Prisma.OrganizerProfileUncheckedCreateInput, "userId">,
+  ) {
+    return prisma.organizerProfile.upsert({
+      where: { userId },
+      create: { userId, ...data },
+      update: data,
+      select: organizerProfileSelect,
+    });
   },
 };

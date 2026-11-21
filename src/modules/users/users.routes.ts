@@ -8,7 +8,9 @@ import {
 import {
   assignRoleController,
   getCurrentUserController,
+  getOrganizerProfileController,
   listUsersController,
+  saveOrganizerProfileController,
 } from "./users.controller.js";
 import { adminOnly, authenticated } from "./users.middleware.js";
 
@@ -28,6 +30,18 @@ usersRouter.post(
   createRateLimiter(15 * 60 * 1000, 5),
   ...authenticated,
   addPasswordController,
+);
+
+usersRouter.get(
+  "/me/organizer-profile",
+  ...authenticated,
+  getOrganizerProfileController,
+);
+
+usersRouter.put(
+  "/me/organizer-profile",
+  ...authenticated,
+  saveOrganizerProfileController,
 );
 
 usersRouter.get("/users", ...adminOnly, listUsersController);
