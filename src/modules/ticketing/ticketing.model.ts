@@ -6,6 +6,23 @@ export const ticketingEventInclude = {
   ticketTypes: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.EventInclude;
 
+/** What a history list shows for each event. */
+const historyEventSelect = {
+  id: true,
+  slug: true,
+  title: true,
+  status: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+  venue: true,
+  city: true,
+  countryCode: true,
+  category: true,
+  coverImageUrl: true,
+  currency: true,
+} satisfies Prisma.EventSelect;
+
 export const reservationInclude = {
   event: true,
   tickets: {
@@ -139,6 +156,61 @@ export const ticketingModel = {
       where: { id: reservationId, userId: null },
       data: { userId },
     });
+  },
+
+  async hostedHistory(
+    organizerId: string,
+    now: Date,
+    { page, pageSize }: { page: number; pageSize: number },
+  ) {
+    const where: Prisma.EventWhereInput = {
+      organizerId,
+      status: { not: "DRAFT" },
+      endsAt: { lt: now },
+    };
+    const [events, total] = await prisma.$transaction([
+      prisma.event.findMany({
+        where,
+        select: {
+          ...historyEventSelect,
+          ticketTypes: { select: { reservedCount: true } },
+        },
+        orderBy: [{ startsAt: "desc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.event.count({ where }),
+    ]);
+    return { events, total };
+  },
+
+  async attendedHistory(
+    owned: Prisma.ReservationWhereInput,
+    now: Date,
+    { page, pageSize }: { page: number; pageSize: number },
+  ) {
+    const where: Prisma.EventWhereInput = {
+      status: "PUBLISHED",
+      endsAt: { lt: now },
+      reservations: { some: owned },
+    };
+    const [events, total] = await prisma.$transaction([
+      prisma.event.findMany({
+        where,
+        select: {
+          ...historyEventSelect,
+          reservations: {
+            where: owned,
+            select: { id: true, tickets: { select: { status: true } } },
+          },
+        },
+        orderBy: [{ startsAt: "desc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.event.count({ where }),
+    ]);
+    return { events, total };
   },
 
   bumpReservationAccessVersion(reservationId: string) {

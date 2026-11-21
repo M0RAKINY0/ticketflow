@@ -10,9 +10,60 @@ const publicUserSelect = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
+/** The root client, or a transaction client when called inside one. */
+type Db = Prisma.TransactionClient;
+
+const eventRef = { id: true, title: true } satisfies Prisma.EventSelect;
+
 export const usersModel = {
   findById(id: string) {
     return prisma.user.findUnique({ where: { id } });
+  },
+
+  findWithSignInMethods(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      include: { accounts: { select: { providerId: true, password: true } } },
+    });
+  },
+
+  /** Upcoming published events the user hosts that have sold tickets. */
+  liveHostedEvents(userId: string, now: Date, db: Db = prisma) {
+    return db.event.findMany({
+      where: {
+        organizerId: userId,
+        status: "PUBLISHED",
+        endsAt: { gt: now },
+        reservations: { some: { status: "CONFIRMED" } },
+      },
+      select: eventRef,
+      orderBy: { startsAt: "asc" },
+    });
+  },
+
+  /** Upcoming published events where the user's orders hold a usable ticket. */
+  upcomingTicketEvents(
+    owned: Prisma.ReservationWhereInput,
+    now: Date,
+    db: Db = prisma,
+  ) {
+    return db.event.findMany({
+      where: {
+        status: "PUBLISHED",
+        endsAt: { gt: now },
+        reservations: {
+          some: {
+            AND: [
+              owned,
+              { status: "CONFIRMED" },
+              { tickets: { some: { status: "READY" } } },
+            ],
+          },
+        },
+      },
+      select: eventRef,
+      orderBy: { startsAt: "asc" },
+    });
   },
 
   updateRole(id: string, role: Role) {
@@ -26,6 +77,7 @@ export const usersModel = {
     pageSize: number;
   }) {
     const where: Prisma.UserWhereInput = {
+      deletedAt: null,
       ...(input.role ? { role: input.role } : {}),
       ...(input.query
         ? {

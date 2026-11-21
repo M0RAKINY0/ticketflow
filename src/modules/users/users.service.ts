@@ -8,7 +8,7 @@ type PublicUser = User;
 export async function getCurrentUser(userId: string): Promise<PublicUser> {
   const user = await usersModel.findById(userId);
 
-  if (!user) {
+  if (!user || user.deletedAt) {
     throw new AppError(404, "USER_NOT_FOUND", "User not found");
   }
 
@@ -21,7 +21,7 @@ export async function assignRole(
 ): Promise<PublicUser> {
   const user = await usersModel.findById(userId);
 
-  if (!user) {
+  if (!user || user.deletedAt) {
     throw new AppError(404, "USER_NOT_FOUND", "User not found");
   }
 

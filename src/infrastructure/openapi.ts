@@ -5,6 +5,10 @@ type OpenAPIDocument = Record<string, any>;
 const operations = [
   ["get", "/health", "Health", false],
   ["get", "/api/v1/me", "Users", true],
+  ["delete", "/api/v1/me", "Users", true],
+  ["post", "/api/v1/me/password", "Users", true],
+  ["get", "/api/v1/me/history/hosted", "Users", true],
+  ["get", "/api/v1/me/history/attended", "Users", true],
   ["get", "/api/v1/users", "Users", true],
   ["patch", "/api/v1/users/{userId}/role", "Users", true],
   ["get", "/api/v1/events", "Events", false],
@@ -49,6 +53,17 @@ const operations = [
   ["get", "/api/v1/events/{eventId}/check-ins", "Check-ins", true],
 ] as const;
 
+const accountDescriptions: Record<string, string> = {
+  "delete /api/v1/me":
+    "Deletes the signed-in account. Needs the browser session. Send `password` if the account has one; a Google-only account must have signed in within the last 10 minutes. Returns 409 while the account hosts an upcoming event with sales (ACCOUNT_HOSTS_LIVE_EVENTS), holds tickets to an upcoming event (ACCOUNT_HAS_UPCOMING_TICKETS), or is the last admin (LAST_ADMIN). Personal details are scrubbed and every session is signed out. Past events and orders stay, labelled 'Deleted user'. Returns 204.",
+  "post /api/v1/me/password":
+    "Adds a password to an account that signs in with Google only. Returns 409 PASSWORD_ALREADY_SET when one exists; use /api/v1/auth/change-password instead.",
+  "get /api/v1/me/history/hosted":
+    "Events the caller hosted that have ended, newest first. Includes cancelled events and `ticketsSold`. Drafts are left out.",
+  "get /api/v1/me/history/attended":
+    "Ended events the caller held valid tickets for, newest first. Cancelled events and orders are left out. `checkedIn` is true when a ticket was scanned at the door.",
+};
+
 const ventraPaths: Record<string, Record<string, unknown>> = {};
 for (const [method, path, tag, secured] of operations) {
   const parameters: Record<string, unknown>[] = [
@@ -67,23 +82,27 @@ for (const [method, path, tag, secured] of operations) {
         : { type: "string", format: "uuid" },
   }));
   ventraPaths[path] ??= {};
-  const requestSchema = path.endsWith("/recover")
-    ? "TicketRecoveryInput"
-    : path.endsWith("/role")
-      ? "RoleUpdate"
-      : path.endsWith("/claim")
-        ? "ReservationClaimInput"
-        : path.endsWith("/reset-link")
-          ? "ReservationLinkResetInput"
-          : path.endsWith("/reservations")
-            ? "ReservationInput"
-            : path.endsWith("/check-ins")
-              ? "CheckInInput"
-              : path.includes("ticket-types")
-                ? "TicketTypeInput"
-                : path.includes("/events")
-                  ? "EventInput"
-                  : undefined;
+  const requestSchema = path.endsWith("/me/password")
+    ? "AddPasswordInput"
+    : path === "/api/v1/me" && method === "delete"
+      ? "DeleteAccountInput"
+      : path.endsWith("/recover")
+        ? "TicketRecoveryInput"
+        : path.endsWith("/role")
+          ? "RoleUpdate"
+          : path.endsWith("/claim")
+            ? "ReservationClaimInput"
+            : path.endsWith("/reset-link")
+              ? "ReservationLinkResetInput"
+              : path.endsWith("/reservations")
+                ? "ReservationInput"
+                : path.endsWith("/check-ins")
+                  ? "CheckInInput"
+                  : path.includes("ticket-types")
+                    ? "TicketTypeInput"
+                    : path.includes("/events")
+                      ? "EventInput"
+                      : undefined;
   if (path.endsWith("/reservations") && method === "post") {
     parameters.push({
       name: "Idempotency-Key",
@@ -102,7 +121,7 @@ for (const [method, path, tag, secured] of operations) {
       schema: { type: "string" },
     });
   }
-  if (path.endsWith("/attendees"))
+  if (path.endsWith("/attendees") || path.includes("/me/history/"))
     parameters.push(
       {
         name: "page",
@@ -121,20 +140,23 @@ for (const [method, path, tag, secured] of operations) {
     description:
       tag === "Users" && path.includes("/users")
         ? "Requires the ADMIN role."
-        : path.endsWith("/reservations") && method === "post"
-          ? "Open to guests and signed-in users. Guests must send a buyer name and email."
-          : path.endsWith("/reset-link")
-            ? "Kills every existing link to the reservation and emails a fresh one to the buyer. Send a live access token, or call as the signed-in owner or an admin. The new link never appears in the response."
-            : path.endsWith("/reservations/{reservationId}") ||
-                path.endsWith("/claim")
-              ? "Access-token links expire 30 days after the event ends and return 410 RESERVATION_LINK_EXPIRED."
-              : undefined,
+        : (accountDescriptions[`${method} ${path}`] ??
+          (path.endsWith("/reservations") && method === "post"
+            ? "Open to guests and signed-in users. Guests must send a buyer name and email."
+            : path.endsWith("/reset-link")
+              ? "Kills every existing link to the reservation and emails a fresh one to the buyer. Send a live access token, or call as the signed-in owner or an admin. The new link never appears in the response."
+              : path.endsWith("/reservations/{reservationId}") ||
+                  path.endsWith("/claim")
+                ? "Access-token links expire 30 days after the event ends and return 410 RESERVATION_LINK_EXPIRED."
+                : undefined)),
     parameters,
     security: secured ? [{ sessionCookie: [] }, { bearerAuth: [] }] : [],
     requestBody:
-      ["post", "patch"].includes(method) && requestSchema
+      (["post", "patch"].includes(method) ||
+        requestSchema === "DeleteAccountInput") &&
+      requestSchema
         ? {
-            required: true,
+            required: method !== "delete",
             content: {
               "application/json": {
                 schema: { $ref: `#/components/schemas/${requestSchema}` },
@@ -309,6 +331,21 @@ export async function createOpenAPIDocument(
                 "A live reservation access token. Signed-in owners and admins can send an empty body.",
             },
           },
+        },
+        DeleteAccountInput: {
+          type: "object",
+          properties: {
+            password: {
+              type: "string",
+              description:
+                "Required when the account has a password. Google-only accounts leave it out.",
+            },
+          },
+        },
+        AddPasswordInput: {
+          type: "object",
+          required: ["newPassword"],
+          properties: { newPassword: { type: "string", minLength: 8 } },
         },
         CheckInInput: {
           type: "object",

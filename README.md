@@ -147,7 +147,30 @@ Redis stores OTP verification records and shared Better Auth rate-limit counters
 
 The API-wide traffic ceiling remains 100 requests per minute per IP. Better Auth applies tighter limits to sensitive routes: password sign-in allows 5 requests per 15 minutes, email signup allows 5 per hour, and Google sign-in initialization allows 20 per minute. Session reads and JWT issuance allow 60 per minute, while sign-out allows 20 per minute. Redis shares these counters between application instances. Verification email delivery is also limited to three requests per 15 minutes for both the source IP and a keyed hash of the normalized email address.
 
-Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration.
+Only an `ADMIN` may call `GET /api/v1/users` or `PATCH /api/v1/users/:userId/role`. The list endpoint accepts `query`, `role`, `page`, and `pageSize`, returns public fields only, and limits page size to 100. Role assignment accepts only `USER` or `ADMIN`; public registration always creates `USER`. Existing `ORGANIZER` records are converted to `USER` by the role migration. Deleted accounts never appear in the list.
+
+### Account settings
+
+Better Auth serves most settings under `/api/v1/auth`:
+
+| Setting                        | Endpoint                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Edit name or phone             | `POST /update-user`                                                                                             |
+| Change password                | `POST /change-password`                                                                                         |
+| Signed-in devices              | `GET /list-sessions`, `POST /revoke-session`, `POST /revoke-other-sessions`                                     |
+| Log out, or log out everywhere | `POST /sign-out`, `POST /revoke-sessions`                                                                       |
+| Sign-in methods                | `GET /list-accounts`, `POST /link-social`, `POST /unlink-account`                                               |
+| Change email                   | `POST /email-otp/send-verification-otp`, `POST /email-otp/request-email-change`, `POST /email-otp/change-email` |
+
+Changing email takes two codes. The client sends `{ "email": "<current>", "type": "email-verification" }` to `send-verification-otp` and gets a code at the current address. It then sends `{ "newEmail", "otp" }` to `request-email-change`, which mails a code to the new address. Finally it sends `{ "newEmail", "otp" }` with that second code to `change-email`. When a code proves the user owns an address, at signup or at the old address during a change, guest orders bought with that address move into the account. They stay there after the email changes.
+
+Ventra adds these under `/api/v1`, all signed-in only:
+
+- `POST /me/password` with `{ "newPassword" }` adds a password to a Google-only account. It returns `409 PASSWORD_ALREADY_SET` when one exists.
+- `GET /me/history/hosted` lists ended events the caller hosted, cancelled ones included, with `ticketsSold`. `GET /me/history/attended` lists ended events the caller held valid tickets for, with `ticketCount`, `reservationIds` and `checkedIn`. Both accept `page` and `pageSize` (at most 100).
+- `DELETE /me` deletes the account. Send `{ "password" }` when the account has one. A Google-only account must have signed in within the last 10 minutes, otherwise it gets `403 SIGN_IN_AGAIN`.
+
+Deleting refuses with `409` while the account hosts an upcoming published event with sold tickets (`ACCOUNT_HOSTS_LIVE_EVENTS`), holds a ticket to an upcoming event (`ACCOUNT_HAS_UPCOMING_TICKETS`), or is the last admin (`LAST_ADMIN`). The first two carry the blocking events in `details.events`. Otherwise it signs out every session, deletes drafts, cancels the account's remaining upcoming events (none have sales), and scrubs the user's name, email, phone and photo. It also removes passwords and Google links, and scrubs the buyer name and email on the account's orders. The user row, past events and orders stay, labelled "Deleted user", so organizers and buyers keep their records. The Nigeria Data Protection Act 2023 allows keeping what a contract or legal record needs. `DELETE /me` and `POST /me/password` need the browser session cookie, not an API token. A 15-minute API token issued before deletion stays valid until it expires.
 
 ## Ticketing API
 

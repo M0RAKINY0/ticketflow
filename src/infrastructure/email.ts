@@ -54,9 +54,9 @@ export function createVerificationEmailSender(
       const result = await transport.send({
         from: transport.from,
         to: email,
-        subject: "Verify your Ventra email",
-        text: `Your Ventra verification code is ${otp}. It expires in 5 minutes. Ignore this email if you did not create an account.`,
-        html: `<p>Your Ventra verification code is <strong>${otp}</strong>.</p><p>It expires in 5 minutes. Ignore this email if you did not create an account.</p>`,
+        subject: "Your Ventra verification code",
+        text: `Your Ventra verification code is ${otp}. It expires in 5 minutes. Ignore this email if you didn't ask for a code.`,
+        html: `<p>Your Ventra verification code is <strong>${otp}</strong>.</p><p>It expires in 5 minutes. Ignore this email if you didn't ask for a code.</p>`,
       });
       if (result.error) throw new Error("Email delivery failed");
     },

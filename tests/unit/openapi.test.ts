@@ -6,6 +6,10 @@ import { createApp } from "../../src/app.js";
 const applicationOperations = [
   "GET /health",
   "GET /api/v1/me",
+  "DELETE /api/v1/me",
+  "POST /api/v1/me/password",
+  "GET /api/v1/me/history/hosted",
+  "GET /api/v1/me/history/attended",
   "GET /api/v1/users",
   "PATCH /api/v1/users/{userId}/role",
   "GET /api/v1/events",
