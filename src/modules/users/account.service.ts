@@ -33,18 +33,16 @@ export async function deleteAccount(
   }
 
   await confirmIdentity(user.accounts, session, password, now);
-  await assertDeletable(user, now);
-
-  // Sign out everywhere first. If the scrub below fails, the person is
-  // signed out with their account intact, which is the safe way to fail.
-  const context = await auth.$context;
-  await context.internalAdapter.deleteUserSessions(user.id);
 
   await prisma.$transaction(async (tx) => {
+    // The checks run under row locks inside the transaction, so two admins
+    // deleting at once can't both pass the last-admin check, and a sale
+    // can't land between the sales check and the cancel below.
+    await lockAndAssertDeletable(tx, user, now);
     await tx.event.deleteMany({
       where: { organizerId: user.id, status: "DRAFT" },
     });
-    // assertDeletable guarantees these have no sales.
+    // lockAndAssertDeletable guarantees these have no sales.
     await tx.event.updateMany({
       where: {
         organizerId: user.id,
@@ -61,8 +59,6 @@ export async function deleteAccount(
       WHERE "userId" = ${user.id}::uuid
          OR ("userId" IS NULL AND ${user.emailVerified} AND "buyerEmail" = ${user.email.toLowerCase()})
     `;
-    await tx.organizerProfile.deleteMany({ where: { userId: user.id } });
-    await tx.eventStaff.deleteMany({ where: { userId: user.id } });
     await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.user.update({
@@ -77,6 +73,13 @@ export async function deleteAccount(
       },
     });
   });
+
+  // Passwords and Google links are gone, so no new sign-in can start, and
+  // the session hook in auth.ts refuses deleted users. This clears every
+  // existing session, Redis copies included, and any created during the
+  // scrub.
+  const context = await auth.$context;
+  await context.internalAdapter.deleteUserSessions(user.id);
 }
 
 /**
@@ -135,11 +138,40 @@ async function confirmIdentity(
   }
 }
 
-async function assertDeletable(
+async function lockAndAssertDeletable(
+  tx: Prisma.TransactionClient,
   user: { id: string; email: string; emailVerified: boolean; role: string },
   now: Date,
 ) {
-  const live = await usersModel.liveHostedEvents(user.id, now);
+  // Locking every active admin row in id order serializes admin deletions
+  // without deadlocks. Everyone else locks just their own row.
+  const lockedAdmins = await (user.role === "ADMIN"
+    ? tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User"
+        WHERE "role" = 'ADMIN' AND "deletedAt" IS NULL
+        ORDER BY "id" FOR UPDATE`
+    : tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE`);
+  if (user.role === "ADMIN" && lockedAdmins.length <= 1) {
+    throw new AppError(
+      409,
+      "LAST_ADMIN",
+      "Make someone else an admin before deleting the last admin account",
+    );
+  }
+
+  // Checkout raises TicketType.reservedCount, so holding these rows blocks
+  // new sales on the user's upcoming events until this transaction ends.
+  await tx.$queryRaw`
+    SELECT tt."id" FROM "TicketType" tt
+    JOIN "Event" e ON e."id" = tt."eventId"
+    WHERE e."organizerId" = ${user.id}::uuid
+      AND e."status" = 'PUBLISHED'
+      AND e."endsAt" > ${now}
+    ORDER BY tt."id"
+    FOR UPDATE OF tt`;
+
+  const live = await usersModel.liveHostedEvents(user.id, now, tx);
   if (live.length) {
     throw new AppError(
       409,
@@ -157,21 +189,13 @@ async function assertDeletable(
         ],
       }
     : { userId: user.id };
-  const upcoming = await usersModel.upcomingTicketEvents(owned, now);
+  const upcoming = await usersModel.upcomingTicketEvents(owned, now, tx);
   if (upcoming.length) {
     throw new AppError(
       409,
       "ACCOUNT_HAS_UPCOMING_TICKETS",
       "You hold tickets to upcoming events. Delete your account after they end.",
       { events: upcoming },
-    );
-  }
-
-  if (user.role === "ADMIN" && (await usersModel.countActiveAdmins()) <= 1) {
-    throw new AppError(
-      409,
-      "LAST_ADMIN",
-      "Make someone else an admin before deleting the last admin account",
     );
   }
 }

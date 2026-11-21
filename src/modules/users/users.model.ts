@@ -10,16 +10,8 @@ const publicUserSelect = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
-/** The public part of an organizer profile, shown on event pages. */
-export const organizerProfileSelect = {
-  displayName: true,
-  bio: true,
-  logoUrl: true,
-  instagramHandle: true,
-  xHandle: true,
-  supportEmail: true,
-  supportPhone: true,
-} satisfies Prisma.OrganizerProfileSelect;
+/** The root client, or a transaction client when called inside one. */
+type Db = Prisma.TransactionClient;
 
 const eventRef = { id: true, title: true } satisfies Prisma.EventSelect;
 
@@ -36,8 +28,8 @@ export const usersModel = {
   },
 
   /** Upcoming published events the user hosts that have sold tickets. */
-  liveHostedEvents(userId: string, now: Date) {
-    return prisma.event.findMany({
+  liveHostedEvents(userId: string, now: Date, db: Db = prisma) {
+    return db.event.findMany({
       where: {
         organizerId: userId,
         status: "PUBLISHED",
@@ -50,8 +42,12 @@ export const usersModel = {
   },
 
   /** Upcoming published events where the user's orders hold a usable ticket. */
-  upcomingTicketEvents(owned: Prisma.ReservationWhereInput, now: Date) {
-    return prisma.event.findMany({
+  upcomingTicketEvents(
+    owned: Prisma.ReservationWhereInput,
+    now: Date,
+    db: Db = prisma,
+  ) {
+    return db.event.findMany({
       where: {
         status: "PUBLISHED",
         endsAt: { gt: now },
@@ -67,29 +63,6 @@ export const usersModel = {
       },
       select: eventRef,
       orderBy: { startsAt: "asc" },
-    });
-  },
-
-  countActiveAdmins() {
-    return prisma.user.count({ where: { role: "ADMIN", deletedAt: null } });
-  },
-
-  findOrganizerProfile(userId: string) {
-    return prisma.organizerProfile.findUnique({
-      where: { userId },
-      select: organizerProfileSelect,
-    });
-  },
-
-  saveOrganizerProfile(
-    userId: string,
-    data: Omit<Prisma.OrganizerProfileUncheckedCreateInput, "userId">,
-  ) {
-    return prisma.organizerProfile.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
-      select: organizerProfileSelect,
     });
   },
 

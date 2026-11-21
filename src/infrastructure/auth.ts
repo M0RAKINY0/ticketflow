@@ -55,6 +55,21 @@ export function createAuth(
         });
       },
     },
+    databaseHooks: {
+      session: {
+        create: {
+          // A sign-in that started just before an account was deleted must
+          // not leave a working session behind.
+          async before(session) {
+            const user = await prisma.user.findUnique({
+              where: { id: session.userId },
+              select: { deletedAt: true },
+            });
+            if (user?.deletedAt) return false;
+          },
+        },
+      },
+    },
     emailVerification: {
       // Runs once a code has proved the user owns `user.email`: at signup
       // verification, and with the old address when they change email.

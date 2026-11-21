@@ -1,15 +1,8 @@
 import { OutboxEventType, type Prisma } from "../../generated/prisma/client.js";
-import { organizerProfileSelect } from "../users/users.model.js";
 import { prisma } from "../../infrastructure/prisma.js";
 
 export const ticketingEventInclude = {
-  organizer: {
-    select: {
-      id: true,
-      name: true,
-      organizerProfile: { select: organizerProfileSelect },
-    },
-  },
+  organizer: { select: { id: true, name: true } },
   ticketTypes: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.EventInclude;
 
